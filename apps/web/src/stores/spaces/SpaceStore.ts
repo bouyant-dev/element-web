@@ -26,6 +26,7 @@ import { AsyncStoreWithClient } from "../AsyncStoreWithClient";
 import { type MatrixDispatcher } from "../../dispatcher/dispatcher.ts";
 import RoomListStoreV3 from "../room-list-v3/RoomListStoreV3";
 import SettingsStore from "../../settings/SettingsStore";
+import SdkConfig from "../../SdkConfig";
 import DMRoomMap from "../../utils/DMRoomMap";
 import { SpaceNotificationState } from "../notifications/SpaceNotificationState";
 import { type RoomNotificationState } from "../notifications/RoomNotificationState";
@@ -1194,7 +1195,16 @@ export default class SpaceStore extends AsyncStoreWithClient<EmptyObject> {
                 // Persist last viewed room from a space
                 // we don't await setActiveSpace above as we only care about this.activeSpace being up to date
                 // synchronously for the below code - everything else can and should be async.
-                window.localStorage.setItem(getSpaceContextKey(this.activeSpace), payload.room_id ?? "");
+                if (
+                    !(
+                        payload.matcha_space_docs &&
+                        SdkConfig.get("matcha_thread_tabs") &&
+                        room?.isSpaceRoom() &&
+                        room.getMyMembership() === KnownMembership.Join
+                    )
+                ) {
+                    window.localStorage.setItem(getSpaceContextKey(this.activeSpace), payload.room_id ?? "");
+                }
                 break;
             }
 

@@ -56,6 +56,8 @@ export function onNewScreen(screen: string, replaceLast = false): void {
     // if the new hash is a substring of the old one then we are stripping fields e.g `via` so replace history
     if (
         screen.startsWith("room/") &&
+        (parseQsFromFragment(window.location).params?.get("view") ?? null) ===
+            new URLSearchParams(screen.split("?")[1]).get("view") &&
         window.location.hash.includes("/$") === hash.includes("/$") && // only if both did or didn't contain event link
         window.location.hash.startsWith(hash)
     ) {

@@ -10,6 +10,7 @@ import { render, screen } from "@test-utils";
 import userEvent from "@testing-library/user-event";
 import { VirtuosoMockContext } from "react-virtuoso";
 import { composeStories } from "@storybook/react-vite";
+import { fn } from "storybook/test";
 import { describe, it, expect, vi } from "vitest";
 
 import * as stories from "./RoomListView.stories";
@@ -22,6 +23,8 @@ vi.spyOn(crypto, "randomUUID").mockImplementation(
 
 const {
     Default,
+    SpaceChats,
+    SpaceDocs,
     Loading,
     Empty,
     EmptyWithoutCreatePermission,
@@ -49,6 +52,38 @@ const renderWithMockContext = (component: React.ReactElement): ReturnType<typeof
 };
 
 describe("<RoomListView />", () => {
+    it("places Space navigation below filters and above the chats", async () => {
+        const user = userEvent.setup();
+        const openSpaceContent = fn();
+        renderWithMockContext(<SpaceChats openSpaceContent={openSpaceContent} />);
+        const nav = screen.getByRole("navigation", { name: "Space content" });
+        const unread = screen.getByRole("option", { name: "Unread" });
+        expect(unread.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(
+            nav.compareDocumentPosition(screen.getByRole("listbox", { name: "Room list" })) &
+                Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        const chats = screen.getByRole("button", { name: "Chats" });
+        const docs = screen.getByRole("button", { name: "Docs" });
+        expect(chats).toHaveAttribute("aria-current", "page");
+        expect(docs).not.toHaveAttribute("aria-current");
+        await user.click(docs);
+        expect(openSpaceContent).toHaveBeenCalledWith("docs");
+        await user.click(chats);
+        expect(openSpaceContent).toHaveBeenCalledWith("chats");
+    });
+
+    it("marks Docs active without hiding the chat list", () => {
+        renderWithMockContext(<SpaceDocs />);
+        expect(screen.getByRole("button", { name: "Docs" })).toHaveAttribute("aria-current", "page");
+        expect(screen.getByRole("button", { name: "Chats" })).not.toHaveAttribute("aria-current");
+        expect(screen.getByRole("listbox", { name: "Room list" })).toBeVisible();
+    });
+
+    it("does not show Space navigation outside a Space", () => {
+        renderWithMockContext(<Default />);
+        expect(screen.queryByRole("navigation", { name: "Space content" })).not.toBeInTheDocument();
+    });
     it("renders Default story", () => {
         const { container } = renderWithMockContext(<Default />);
         expect(container).toMatchSnapshot();

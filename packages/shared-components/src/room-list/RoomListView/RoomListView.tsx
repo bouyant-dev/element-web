@@ -6,6 +6,8 @@
  */
 
 import React, { type JSX, type ReactNode } from "react";
+import { Button } from "@vector-im/compound-web";
+import { ChatIcon, DocumentIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { RoomListPrimaryFilters, type FilterId } from "../RoomListPrimaryFilters";
@@ -18,6 +20,7 @@ import { type ToastType, RoomListToast } from "./RoomListToast";
 import styles from "./RoomListView.module.css";
 import { Flex } from "../../core/utils/Flex";
 import { AutoHideScrollbar } from "../../core/utils/Scrollbar";
+import { _t } from "../../core/i18n/i18n";
 
 export type RoomListSection = {
     /** Unique identifier for the section */
@@ -50,6 +53,8 @@ export type RoomListViewSnapshot = {
     canCreateRoom?: boolean;
     /** Whether the room list is displayed as a flat list */
     isFlatList: boolean;
+    /** Active content in a joined Space; absent outside a Space. */
+    spaceContent?: "chats" | "docs";
     /**
      * The single toast to display (if any). The view model owns which toast wins when more
      * than one applies (e.g. a transient "chat_moved" event toast takes precedence over the
@@ -62,6 +67,8 @@ export type RoomListViewSnapshot = {
  * Actions interface for room list operations
  */
 export interface RoomListViewActions {
+    /** Open the selected Space's chats or shared document. */
+    openSpaceContent: (content: "chats" | "docs") => void;
     /** Called when a filter is toggled */
     onToggleFilter: (filterId: FilterId) => void;
     /** Called to create a new chat room */
@@ -147,6 +154,28 @@ export const RoomListView: React.FC<RoomListViewProps> = ({ vm, renderAvatar, on
                     onToggleFilter={vm.onToggleFilter}
                 />
             </div>
+            {snapshot.spaceContent && (
+                <nav className={styles.spaceContent} aria-label={_t("matcha_space_docs|navigation")}>
+                    <Button
+                        kind="tertiary"
+                        size="md"
+                        Icon={ChatIcon}
+                        aria-current={snapshot.spaceContent === "chats" ? "page" : undefined}
+                        onClick={() => vm.openSpaceContent("chats")}
+                    >
+                        {_t("matcha_space_docs|chats")}
+                    </Button>
+                    <Button
+                        kind="tertiary"
+                        size="md"
+                        Icon={DocumentIcon}
+                        aria-current={snapshot.spaceContent === "docs" ? "page" : undefined}
+                        onClick={() => vm.openSpaceContent("docs")}
+                    >
+                        {_t("matcha_space_docs|docs")}
+                    </Button>
+                </nav>
+            )}
             <Flex direction="column" className={styles.list}>
                 <AutoHideScrollbar className={styles.scrollbar}>
                     {listBody}

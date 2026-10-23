@@ -17,7 +17,7 @@ export function spaceForRoomDocuments(
     return space?.isSpaceRoom() &&
         space.getMyMembership() === "join" &&
         room.getMyMembership() === "join" &&
-        store.isRoomInSpace(space.roomId, room.roomId)
+        (space.roomId === room.roomId || store.isRoomInSpace(space.roomId, room.roomId))
         ? space
         : undefined;
 }

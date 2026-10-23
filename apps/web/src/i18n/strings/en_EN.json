@@ -1732,10 +1732,7 @@
     },
     "matcha_space_docs": {
         "confirm": "Enable encrypted Docs for %(space)s? All Space members can read and edit it and send encrypted content in this Space. Encryption is permanent. Chat permissions and chat encryption stay the same.",
-        "docs": "Docs",
         "enable": "Enable encrypted Docs",
-        "navigation": "Space content",
-        "rooms": "Rooms",
         "setup_error": "Setup is incomplete. Encryption may already be enabled and cannot be turned off. Check your connection and Space permissions, then try again."
     },
     "matcha_threads": {

@@ -41,8 +41,22 @@ async function openSpaceDocs(app: ElementAppPage, page: Page, chat: string, wait
     await app.viewRoomByName(chat);
     const navigation = page.getByRole("navigation", { name: "Room conversations" });
     await expect(navigation.getByRole("button", { name: "Docs", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "More", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Space docs", exact: true }).click();
+    const spaceNavigation = page
+        .getByRole("navigation", { name: "Room list", exact: true })
+        .getByRole("navigation", { name: "Space content", exact: true });
+    await expect(spaceNavigation.getByRole("button", { name: "Chats", exact: true })).toHaveAttribute(
+        "aria-current",
+        "page",
+    );
+    await spaceNavigation.getByRole("button", { name: "Docs", exact: true }).click();
+    await expect(spaceNavigation.getByRole("button", { name: "Docs", exact: true })).toHaveAttribute(
+        "aria-current",
+        "page",
+    );
+    await expect(spaceNavigation.getByRole("button", { name: "Chats", exact: true })).not.toHaveAttribute(
+        "aria-current",
+        "page",
+    );
     const region = page.getByRole("region", { name: "Docs", exact: true });
     await expect(region).toContainText(SPACE_NAME);
     const editor = region.getByRole("textbox", { name: "Markdown document", exact: true });
@@ -221,10 +235,36 @@ test.describe("Matcha shared Space Docs", () => {
 
             await dismissPrompts(alicePage);
             await alice.viewSpaceHomeByName(SPACE_NAME);
-            await alicePage
-                .getByRole("navigation", { name: "Space content" })
-                .getByRole("button", { name: "Docs", exact: true })
-                .click();
+            const roomList = alicePage.getByRole("navigation", { name: "Room list", exact: true });
+            const spaceNavigation = roomList.getByRole("navigation", { name: "Space content", exact: true });
+            const chatsToggle = spaceNavigation.getByRole("button", { name: "Chats", exact: true });
+            const docsToggle = spaceNavigation.getByRole("button", { name: "Docs", exact: true });
+            const firstChat = roomList
+                .getByRole("listbox", { name: "Room list", exact: true })
+                .getByRole("option")
+                .first();
+            await expect(chatsToggle).toHaveAttribute("aria-current", "page");
+            await expect(firstChat).toBeVisible();
+            await expect(firstChat).toContainText(ALICE_CHAT);
+            await expect
+                .poll(async () => {
+                    const [filters, toggle, chat] = await Promise.all([
+                        roomList.getByRole("listbox", { name: "Room list filters", exact: true }).boundingBox(),
+                        spaceNavigation.boundingBox(),
+                        firstChat.boundingBox(),
+                    ]);
+                    return (
+                        !!filters &&
+                        !!toggle &&
+                        !!chat &&
+                        filters.y + filters.height <= toggle.y &&
+                        toggle.y + toggle.height <= chat.y
+                    );
+                })
+                .toBe(true);
+            await docsToggle.click();
+            await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs`);
+            await expect(docsToggle).toHaveAttribute("aria-current", "page");
             await expect(alicePage.getByRole("textbox", { name: "Markdown document", exact: true })).toHaveCount(0);
             await alicePage.getByRole("button", { name: "Enable encrypted Docs", exact: true }).click();
             const setup = alicePage.getByRole("dialog", { name: "Enable encrypted Docs", exact: true });
@@ -325,6 +365,22 @@ test.describe("Matcha shared Space Docs", () => {
             await expect.poll(async () => (await aliceEditor.innerText()) === (await bobEditor.innerText())).toBe(true);
             await expect(aliceDocs.getByRole("status")).toHaveText("Saved");
             await expect(bobDocs.getByRole("status")).toHaveText("Saved");
+
+            await chatsToggle.click();
+            await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${aliceChatId}`);
+            await expect(chatsToggle).toHaveAttribute("aria-current", "page");
+            await expect(docsToggle).not.toHaveAttribute("aria-current", "page");
+            await docsToggle.click();
+            await firstChat.click();
+            await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${aliceChatId}`);
+            await expect(chatsToggle).toHaveAttribute("aria-current", "page");
+            await expect(aliceDocs).toHaveCount(0);
+            // The existing chat shortcut reaches the same Space route and selected sidebar toggle.
+            await alicePage.getByRole("button", { name: "More", exact: true }).click();
+            await alicePage.getByRole("menuitem", { name: "Space docs", exact: true }).click();
+            await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs`);
+            await expect(docsToggle).toHaveAttribute("aria-current", "page");
+            await expect(aliceEditor).toContainText("Alice contribution");
             await aliceDocs.getByRole("button", { name: "Preview", exact: true }).click();
             await expect(aliceDocs.getByRole("heading", { name: "Shared plan", exact: true })).toBeVisible();
             await alicePage.screenshot({
@@ -334,8 +390,17 @@ test.describe("Matcha shared Space Docs", () => {
             await aliceDocs.getByRole("button", { name: "Edit Markdown", exact: true }).click();
 
             await Promise.all([alicePage.reload(), bobPage.reload()]);
-            await Promise.all([openSpaceDocs(alice, alicePage, ALICE_CHAT), openSpaceDocs(bob, bobPage, BOB_CHAT)]);
+            for (const page of [alicePage, bobPage]) {
+                await dismissPrompts(page);
+                await expect(page).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs`);
+                await expect(
+                    page
+                        .getByRole("navigation", { name: "Space content", exact: true })
+                        .getByRole("button", { name: "Docs", exact: true }),
+                ).toHaveAttribute("aria-current", "page");
+            }
             for (const editor of [aliceEditor, bobEditor]) {
+                await expect(editor).toBeEditable();
                 await expect(editor).toContainText("Alice contribution");
                 await expect(editor).toContainText("Bob contribution");
             }
@@ -356,10 +421,7 @@ test.describe("Matcha shared Space Docs", () => {
             await expect.poll(() => rejectedSends).toBeGreaterThan(0);
             await expect(aliceDocs.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
             await expect(aliceDocs.getByRole("status")).not.toHaveText("Saved");
-            await alicePage
-                .getByRole("navigation", { name: "Room conversations" })
-                .getByRole("button", { name: "General", exact: true })
-                .click();
+            await chatsToggle.click();
             await openSpaceDocs(alice, alicePage, ALICE_CHAT, false);
             await expect(aliceEditor).toContainText("Unsent change survives navigation and retry.");
             await alicePage.unroute("**/send/m.room.encrypted/**", rejectSend);
@@ -369,7 +431,8 @@ test.describe("Matcha shared Space Docs", () => {
             await expect(aliceEditor).toBeEditable();
             await expect.poll(async () => (await aliceEditor.innerText()) === (await bobEditor.innerText())).toBe(true);
             await alicePage.reload();
-            await openSpaceDocs(alice, alicePage, ALICE_CHAT);
+            await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs`);
+            await expect(docsToggle).toHaveAttribute("aria-current", "page");
             await expect(aliceEditor).toContainText("Unsent change survives navigation and retry.");
 
             const persisted = await alice.client.evaluate(
@@ -446,6 +509,8 @@ test.describe("Matcha shared Space Docs", () => {
                 }),
             ).rejects.toThrow();
 
+            await alice.viewRoomByName(ALICE_CHAT);
+            await expect(chatsToggle).toHaveAttribute("aria-current", "page");
             await alicePage.getByRole("button", { name: "More", exact: true }).click();
             await alicePage.getByRole("menuitem", { name: "Earlier chat document", exact: true }).click();
             await expect(aliceDocs.getByRole("heading", { name: "Legacy private plan", exact: true })).toBeVisible();
@@ -464,6 +529,13 @@ test.describe("Matcha shared Space Docs", () => {
                 );
             }, aliceChatId);
             expect(afterExport).toEqual([legacyEventId]);
+            const spaces = alicePage.getByRole("tree", { name: "Spaces" });
+            await spaces.getByRole("button", { name: "Home", exact: true }).click();
+            await expect(alicePage).toHaveURL((url) => url.hash === "#/home");
+            await expect(spaceNavigation).toHaveCount(0);
+            await spaces.getByRole("button", { name: "Personal", exact: true }).click();
+            await expect(alicePage).toHaveURL((url) => url.hash === "#/personal");
+            await expect(spaceNavigation).toHaveCount(0);
             await openSpaceDocs(alice, alicePage, ALICE_CHAT);
             await expect(aliceEditor).not.toContainText("Legacy private plan");
             await expect(aliceEditor).toContainText("Unsent change survives navigation and retry.");

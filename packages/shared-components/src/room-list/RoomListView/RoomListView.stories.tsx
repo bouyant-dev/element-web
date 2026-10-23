@@ -32,6 +32,7 @@ const mockFilterIds: FilterId[] = ["unread", "people", "rooms"];
 
 // Wrapper component that creates a mocked ViewModel
 const RoomListViewWrapperImpl = ({
+    openSpaceContent,
     onToggleFilter,
     createChatRoom,
     createRoom,
@@ -50,6 +51,7 @@ const RoomListViewWrapperImpl = ({
     ...rest
 }: RoomListViewProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
+        openSpaceContent,
         onToggleFilter,
         createChatRoom,
         createRoom,
@@ -106,6 +108,7 @@ const meta = {
         sections: mockSections,
         canCreateRoom: true,
         // Action properties (callbacks)
+        openSpaceContent: fn(),
         onToggleFilter: fn(),
         createChatRoom: fn(),
         createRoom: fn(),
@@ -296,3 +299,6 @@ export const ToastOverStickySection: Story = {
         await expect(canvasElement).toMatchImageSnapshot();
     },
 };
+
+export const SpaceChats: Story = { args: { spaceContent: "chats" } };
+export const SpaceDocs: Story = { args: { spaceContent: "docs" } };

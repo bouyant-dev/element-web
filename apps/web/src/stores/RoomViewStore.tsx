@@ -114,6 +114,8 @@ interface State {
      * Whether we're viewing a call or call lobby in this room
      */
     viewingCall: boolean;
+    /** Whether the current joined Space is displaying its shared document. */
+    viewingSpaceDocs: boolean;
 
     promptAskToJoin: boolean;
     /**
@@ -140,6 +142,7 @@ const INITIAL_STATE: State = {
     viaServers: [],
     wasContextSwitch: false,
     viewingCall: false,
+    viewingSpaceDocs: false,
     promptAskToJoin: false,
 };
 
@@ -242,6 +245,7 @@ export class RoomViewStore extends EventEmitter {
                     viaServers: [],
                     wasContextSwitch: false,
                     viewingCall: false,
+                    viewingSpaceDocs: false,
                 });
                 break;
             case Action.ViewRoomError:
@@ -343,6 +347,12 @@ export class RoomViewStore extends EventEmitter {
     public async viewRoom(payload: ViewRoomPayload): Promise<void> {
         if (payload.room_id) {
             const room = MatrixClientPeg.safeGet().getRoom(payload.room_id);
+            const viewingSpaceDocs = !!(
+                payload.matcha_space_docs &&
+                SdkConfig.get("matcha_thread_tabs") &&
+                room?.isSpaceRoom() &&
+                room.getMyMembership() === KnownMembership.Join
+            );
 
             if (payload.metricsTrigger !== null && payload.room_id !== this.state.roomId) {
                 let activeSpace: ViewRoomEvent["activeSpace"];
@@ -415,6 +425,7 @@ export class RoomViewStore extends EventEmitter {
                     viaServers: payload.via_servers,
                     wasContextSwitch: payload.context_switch,
                     viewingCall,
+                    viewingSpaceDocs,
                 });
                 // set this room as the room subscription. We need to await for it as this will fetch
                 // all room state for this room, which is required before we get the state below.
@@ -444,6 +455,7 @@ export class RoomViewStore extends EventEmitter {
                 viaServers: payload.via_servers ?? [],
                 wasContextSwitch: payload.context_switch ?? false,
                 viewingCall,
+                viewingSpaceDocs,
             };
 
             // Allow being given an event to be replied to when switching rooms but sanity check its for this room
@@ -503,6 +515,7 @@ export class RoomViewStore extends EventEmitter {
                     viaServers: payload.via_servers,
                     wasContextSwitch: payload.context_switch,
                     viewingCall: payload.view_call ?? false,
+                    viewingSpaceDocs: false,
                 });
                 try {
                     const result = await MatrixClientPeg.safeGet().getRoomIdForAlias(payload.room_alias);
@@ -542,6 +555,7 @@ export class RoomViewStore extends EventEmitter {
             roomAlias: payload.room_alias,
             roomLoading: false,
             roomLoadError: payload.err,
+            viewingSpaceDocs: false,
         });
     }
 
@@ -809,6 +823,11 @@ export class RoomViewStore extends EventEmitter {
 
     public isViewingCall(): boolean {
         return this.state.viewingCall;
+    }
+
+    /** Shared route state for the Space document and the room-list navigation toggle. */
+    public isViewingSpaceDocs(): boolean {
+        return this.state.viewingSpaceDocs;
     }
 
     /**

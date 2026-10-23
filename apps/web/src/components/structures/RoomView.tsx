@@ -68,9 +68,7 @@ import SdkConfig from "../../SdkConfig";
 import { RoomThreadTabs } from "../views/rooms/RoomThreadTabs";
 import { KanbanBoard } from "../views/rooms/KanbanBoard";
 import { RoomDocs } from "../views/rooms/RoomDocs";
-import { SpaceDocs } from "../views/rooms/SpaceDocs";
 import { spaceForRoomDocuments } from "../../utils/matcha/spaceDocuments";
-import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
 import SettingsStore from "../../settings/SettingsStore";
@@ -246,7 +244,8 @@ export interface IRoomState {
     showRightPanel: boolean;
     matchaBoard?: "room" | "all";
     matchaBoardThreadId?: string;
-    matchaDocs?: "space" | "legacy";
+    matchaDocs?: "legacy";
+    viewingSpaceDocs?: boolean;
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -656,6 +655,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             matchaBoard: roomId === this.state.roomId ? this.state.matchaBoard : undefined,
             matchaBoardThreadId: roomId === this.state.roomId ? this.state.matchaBoardThreadId : undefined,
             matchaDocs: roomId === this.state.roomId ? this.state.matchaDocs : undefined,
+            viewingSpaceDocs: roomViewStore.isViewingSpaceDocs(),
             roomAlias: roomAlias,
             roomLoading: roomLoading,
             roomLoadError,
@@ -986,7 +986,6 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     public componentDidMount(): void {
         this.unmounted = false;
-        this.context.spaceStore.on(UPDATE_SELECTED_SPACE, this.onMatchaSpaceChanged);
 
         this.dispatcherRef = defaultDispatcher.register(this.onAction);
         if (this.context.client) {
@@ -1081,7 +1080,6 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     }
 
     public componentWillUnmount(): void {
-        this.context.spaceStore.off(UPDATE_SELECTED_SPACE, this.onMatchaSpaceChanged);
         // set a boolean to say we've been unmounted, which any pending
         // promises can use to throw away their results.
         //
@@ -1175,18 +1173,21 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     };
 
     private onOpenMatchaDocs = (): void => {
-        if (!this.state.room || !spaceForRoomDocuments(this.context.spaceStore, this.state.room)) return;
+        const space = this.state.room && spaceForRoomDocuments(this.context.spaceStore, this.state.room);
+        if (!space || !SdkConfig.get("matcha_thread_tabs")) return;
         this.context.rightPanelStore.hide(this.state.roomId ?? null);
-        this.setState({ matchaDocs: "space", matchaBoard: undefined, matchaBoardThreadId: undefined });
+        defaultDispatcher.dispatch<ViewRoomPayload>({
+            action: Action.ViewRoom,
+            room_id: space.roomId,
+            matcha_space_docs: true,
+            forceTimeline: false,
+            metricsTrigger: undefined,
+        });
     };
 
     private onOpenEarlierChatDocument = (): void => {
         this.context.rightPanelStore.hide(this.state.roomId ?? null);
         this.setState({ matchaDocs: "legacy", matchaBoard: undefined, matchaBoardThreadId: undefined });
-    };
-
-    private onMatchaSpaceChanged = (): void => {
-        if (this.state.matchaDocs === "space") this.setState({ matchaDocs: undefined });
     };
 
     private onPageUnload = (event: BeforeUnloadEvent): string | undefined => {
@@ -2536,6 +2537,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             return (
                 <SpaceRoomView
                     space={this.state.room}
+                    docs={this.state.viewingSpaceDocs}
                     justCreatedOpts={this.props.justCreatedOpts}
                     resizeNotifier={this.context.resizeNotifier}
                     permalinkCreator={this.permalinkCreator}
@@ -2600,11 +2602,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 RightPanelPhases.ThreadView &&
             !this.state.search;
         const boardInMain = showThreadTabs && !!this.state.matchaBoard && !this.state.search;
-        const docsSpace = spaceForRoomDocuments(this.context.spaceStore, this.state.room);
-        const docsInMain =
-            showThreadTabs &&
-            !this.state.search &&
-            (this.state.matchaDocs === "legacy" || (this.state.matchaDocs === "space" && !!docsSpace));
+        const docsInMain = showThreadTabs && !this.state.search && this.state.matchaDocs === "legacy";
         let hideMessagePanel = threadInMain || boardInMain || docsInMain;
 
         if (this.state.search) {
@@ -2806,11 +2804,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     {threadInMain && <main className="mx_RoomView_threadTimeline">{rightPanel}</main>}
                     {docsInMain && (
                         <main className="mx_RoomView_board">
-                            {this.state.matchaDocs === "space" && docsSpace ? (
-                                <SpaceDocs key={docsSpace.roomId} space={docsSpace} />
-                            ) : (
-                                <RoomDocs key={this.state.room.roomId} room={this.state.room} readOnly />
-                            )}
+                            <RoomDocs key={this.state.room.roomId} room={this.state.room} readOnly />
                         </main>
                     )}
                     {boardInMain && (

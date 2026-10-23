@@ -51,6 +51,9 @@ import SettingsStore from "../../settings/SettingsStore";
 import { type RoomViewStore } from "../../stores/RoomViewStore.tsx";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
 import { EffectiveMembership, getEffectiveMembership } from "../../utils/membership";
+import SdkConfig from "../../SdkConfig";
+import { spaceForRoomDocuments } from "../../utils/matcha/spaceDocuments";
+import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 
 /**
  * Tracks the position of the active room within a specific section.
@@ -289,6 +292,7 @@ export class RoomListViewModel
 
         // The summary of the open room arrives after the room has been opened
         this.disposables.trackListener(props.roomViewStore, UPDATE_EVENT, this.onRoomViewStoreUpdate);
+        this.disposables.trackListener(props.spaceStore, UPDATE_SELECTED_SPACE, this.updateSpaceContent);
 
         // Track cleanup of all child view models
         this.disposables.track(() => {
@@ -304,7 +308,43 @@ export class RoomListViewModel
     }
 
     private readonly onRoomViewStoreUpdate = (): void => {
+        this.updateSpaceContent();
         if (this.updatePreviewItem()) void this.updateRoomListData();
+    };
+
+    private getDocumentSpace(): Room | undefined {
+        if (!SdkConfig.get("matcha_thread_tabs")) return undefined;
+        const roomId = this.props.roomViewStore.getRoomId();
+        const room = roomId && this.props.client.getRoom(roomId);
+        return room ? spaceForRoomDocuments(this.props.spaceStore, room) : undefined;
+    }
+
+    private readonly updateSpaceContent = (): void => {
+        const space = this.getDocumentSpace();
+        this.snapshot.merge({
+            spaceContent: space
+                ? this.props.roomViewStore.isViewingSpaceDocs() && this.props.roomViewStore.getRoomId() === space.roomId
+                    ? "docs"
+                    : "chats"
+                : undefined,
+        });
+    };
+
+    public openSpaceContent = (content: "chats" | "docs"): void => {
+        const space = this.getDocumentSpace();
+        if (!space) return;
+        let roomId = space.roomId;
+        if (content === "chats") {
+            const lastRoomId = this.props.spaceStore.getLastSelectedRoomIdForSpace(space.roomId);
+            const lastRoom = lastRoomId && this.props.client.getRoom(lastRoomId);
+            if (lastRoom && spaceForRoomDocuments(this.props.spaceStore, lastRoom)) roomId = lastRoom.roomId;
+        }
+        dispatcher.dispatch<ViewRoomPayload>({
+            action: Action.ViewRoom,
+            room_id: roomId,
+            matcha_space_docs: content === "docs",
+            metricsTrigger: undefined,
+        });
     };
 
     /**
@@ -825,6 +865,7 @@ export class RoomListViewModel
      * indirectly through room list updates.
      */
     private onListsUpdate = (): void => {
+        this.updateSpaceContent();
         const filterKeys = this.activeFilter !== undefined ? [this.activeFilter] : undefined;
         const oldSpaceId = this.roomsResult.spaceId;
 

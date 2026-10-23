@@ -35,7 +35,8 @@ import SettingsStore from "../../settings/SettingsStore";
 import { tagRoom } from "../../utils/room/tagRoom";
 import { getSectionTagForRoom } from "../../utils/room/getSectionTagForRoom";
 import { CHATS_TAG, CUSTOM_SECTION_TAG_PREFIX, type SectionExpansionState } from "../../stores/room-list-v3/section";
-import { MetaSpace } from "../../stores/spaces";
+import { MetaSpace, UPDATE_SELECTED_SPACE } from "../../stores/spaces";
+import SdkConfig from "../../SdkConfig";
 import { RoomNotificationStateStore } from "../../stores/notifications/RoomNotificationStateStore";
 import { type RoomNotificationState } from "../../stores/notifications/RoomNotificationState";
 
@@ -154,6 +155,82 @@ describe("RoomListViewModel", () => {
 
             expect(viewModel.getSnapshot().canCreateRoom).toBe(true);
         });
+    });
+
+    describe("Space content navigation", () => {
+        let space: Room;
+        const stores = SDKContextClass.instance;
+
+        beforeEach(() => {
+            space = mkStubRoom("!space:server", "Project space", matrixClient);
+            vi.mocked(space.isSpaceRoom).mockReturnValue(true);
+            vi.mocked(space.getMyMembership).mockReturnValue(KnownMembership.Join);
+            vi.mocked(room1.getMyMembership).mockReturnValue(KnownMembership.Join);
+            vi.spyOn(SdkConfig, "get").mockReturnValue(true);
+            vi.spyOn(stores.spaceStore, "activeSpaceRoom", "get").mockReturnValue(space);
+            vi.spyOn(stores.spaceStore, "isRoomInSpace").mockImplementation((_spaceId, id) => id === room1.roomId);
+            vi.spyOn(stores.spaceStore, "getLastSelectedRoomIdForSpace").mockReturnValue(room1.roomId);
+            vi.spyOn(stores.roomViewStore, "getRoomId").mockReturnValue(room1.roomId);
+            vi.spyOn(stores.roomViewStore, "isViewingSpaceDocs").mockReturnValue(false);
+            vi.spyOn(matrixClient, "getRoom").mockImplementation(
+                (id) => [space, room1].find((r) => r.roomId === id) ?? null,
+            );
+            viewModel = new RoomListViewModel({
+                client: matrixClient,
+                spaceStore: stores.spaceStore,
+                roomViewStore: stores.roomViewStore,
+            });
+        });
+
+        it("opens the selected Space document and returns to its last joined chat", () => {
+            const dispatch = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+            expect(viewModel.getSnapshot().spaceContent).toBe("chats");
+            viewModel.openSpaceContent("docs");
+            expect(dispatch).toHaveBeenLastCalledWith(
+                expect.objectContaining({ room_id: space.roomId, matcha_space_docs: true }),
+            );
+            vi.mocked(stores.roomViewStore.getRoomId).mockReturnValue(space.roomId);
+            vi.mocked(stores.roomViewStore.isViewingSpaceDocs).mockReturnValue(true);
+            stores.roomViewStore.emit(UPDATE_EVENT);
+            expect(viewModel.getSnapshot().spaceContent).toBe("docs");
+            viewModel.openSpaceContent("chats");
+            expect(dispatch).toHaveBeenLastCalledWith(
+                expect.objectContaining({ room_id: room1.roomId, matcha_space_docs: false }),
+            );
+            vi.mocked(stores.roomViewStore.getRoomId).mockReturnValue(room1.roomId);
+            stores.roomViewStore.emit(UPDATE_EVENT);
+            expect(viewModel.getSnapshot().spaceContent).toBe("chats");
+        });
+
+        it.each(["left", "unrelated", "missing"])("falls back to Space home when the last chat is %s", (reason) => {
+            if (reason === "left") vi.mocked(room1.getMyMembership).mockReturnValue(KnownMembership.Leave);
+            if (reason === "unrelated") vi.mocked(stores.spaceStore.isRoomInSpace).mockReturnValue(false);
+            if (reason === "missing")
+                vi.mocked(stores.spaceStore.getLastSelectedRoomIdForSpace).mockReturnValue("!unknown:server");
+            vi.mocked(stores.roomViewStore.getRoomId).mockReturnValue(space.roomId);
+            const dispatch = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+            viewModel.openSpaceContent("chats");
+            expect(dispatch).toHaveBeenLastCalledWith(
+                expect.objectContaining({ room_id: space.roomId, matcha_space_docs: false }),
+            );
+        });
+
+        it.each(["Home or Personal", "unrelated chat", "left Space", "beta disabled", "no selected Space"])(
+            "hides and disables Docs on %s",
+            (reason) => {
+                if (reason === "Home or Personal") vi.mocked(stores.roomViewStore.getRoomId).mockReturnValue(null);
+                if (reason === "unrelated chat") vi.mocked(stores.spaceStore.isRoomInSpace).mockReturnValue(false);
+                if (reason === "left Space") vi.mocked(space.getMyMembership).mockReturnValue(KnownMembership.Leave);
+                if (reason === "beta disabled") vi.mocked(SdkConfig.get).mockReturnValue(false);
+                if (reason === "no selected Space")
+                    vi.spyOn(stores.spaceStore, "activeSpaceRoom", "get").mockReturnValue(null);
+                stores.spaceStore.emit(UPDATE_SELECTED_SPACE);
+                expect(viewModel.getSnapshot().spaceContent).toBeUndefined();
+                const dispatch = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+                viewModel.openSpaceContent("docs");
+                expect(dispatch).not.toHaveBeenCalled();
+            },
+        );
     });
 
     describe("Room list updates", () => {

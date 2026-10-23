@@ -13,6 +13,9 @@ const chat = { roomId: "!child:server", getMyMembership: () => "join" } as Room;
 const space = { roomId: "!nested:server", isSpaceRoom: () => true, getMyMembership: () => "join" } as Room;
 
 describe("spaceForRoomDocuments", () => {
+    it("includes the selected Space itself without requiring a self-child relation", () => {
+        expect(spaceForRoomDocuments({ activeSpaceRoom: space, isRoomInSpace: () => false }, space)).toBe(space);
+    });
     it("uses the explicitly selected nested Space for a room with multiple possible parents", () => {
         const isRoomInSpace = vi.fn().mockReturnValue(true);
         expect(spaceForRoomDocuments({ activeSpaceRoom: space, isRoomInSpace }, chat)).toBe(space);

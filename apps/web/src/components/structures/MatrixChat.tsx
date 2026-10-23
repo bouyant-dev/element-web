@@ -207,6 +207,7 @@ interface IState {
     justRegistered?: boolean;
     roomJustCreatedOpts?: IOpts;
     forceTimeline?: boolean; // see props
+    viewingSpaceDocs?: boolean;
 }
 
 export default class MatrixChat extends React.PureComponent<IProps, IState> {
@@ -746,6 +747,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                     void this.viewRoom({
                         action: Action.ViewRoom,
                         room_id: this.state.currentRoomId,
+                        matcha_space_docs: this.state.viewingSpaceDocs,
                         metricsTrigger: undefined, // room doesn't change
                     });
                 }
@@ -1020,6 +1022,12 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
 
         let presentedId = roomInfo.room_alias || roomInfo.room_id!;
         const room = MatrixClientPeg.safeGet().getRoom(roomInfo.room_id);
+        const viewingSpaceDocs = !!(
+            roomInfo.matcha_space_docs &&
+            SdkConfig.get("matcha_thread_tabs") &&
+            room?.isSpaceRoom() &&
+            room.getMyMembership() === "join"
+        );
         if (room) {
             // Not all timeline events are decrypted ahead of time anymore
             // Only the critical ones for a typical UI are
@@ -1040,7 +1048,10 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         }
 
         // If we are redirecting to a Room Alias and it is for the room we already showing then replace history item
-        let replaceLast = presentedId[0] === "#" && roomInfo.room_id === this.state.currentRoomId;
+        let replaceLast =
+            presentedId[0] === "#" &&
+            roomInfo.room_id === this.state.currentRoomId &&
+            viewingSpaceDocs === !!this.state.viewingSpaceDocs;
 
         if (isLocalRoom(this.state.currentRoomId)) {
             // Replace local room history items
@@ -1058,6 +1069,10 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         if (roomInfo.event_id && roomInfo.highlighted) {
             presentedId += "/" + roomInfo.event_id;
         }
+        if (viewingSpaceDocs) {
+            presentedId += "?view=docs";
+            roomInfo.forceTimeline = false;
+        }
         this.setState(
             {
                 view: Views.LOGGED_IN,
@@ -1066,11 +1081,14 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                 threepidInvite: roomInfo.threepid_invite,
                 roomOobData: roomInfo.oob_data,
                 forceTimeline: roomInfo.forceTimeline,
+                viewingSpaceDocs,
                 ready: true,
                 roomJustCreatedOpts: roomInfo.justCreatedOpts,
             },
             () => {
-                this.notifyNewScreen("room/" + presentedId, replaceLast);
+                // The resolved ViewRoom payload validates Docs without an intermediate alias URL.
+                if (!(roomInfo.matcha_space_docs && roomInfo.room_alias && !roomInfo.room_id))
+                    this.notifyNewScreen("room/" + presentedId, replaceLast);
             },
         );
     }
@@ -1986,6 +2004,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             const payload: ViewRoomPayload = {
                 action: Action.ViewRoom,
                 event_id: eventId,
+                matcha_space_docs: params?.view === "docs",
                 via_servers: via,
                 // If an event ID is given in the URL hash, notify RoomViewStore to mark
                 // it as highlighted, which will propagate to RoomView and highlight the

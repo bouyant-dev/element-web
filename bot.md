@@ -28,6 +28,7 @@ served locally at port6018. The deployed UI uses that horizontal direction, with
 ## Implemented behavior
 
 - Favourites is the first room filter. Beta defaults `RoomList.showSections` to false; existing account preferences can override defaults.
+- A compact **Chats / Docs** toggle lives in the left room list, below the filter chips and above the first chat. It is available only in a joined real Space. Docs routes to `#/room/<space>?view=docs`, survives reload/Back navigation, and Chats returns to the last joined child chat (Space home if unavailable). Home and Personal have no Space Docs toggle. More → Space docs uses the same route.
 - One horizontal room toolbar contains General, Board, up to four thread tabs, New thread, Thread history and More. Shared Docs now belongs to the selected actual Matrix Space, rather than an individual chat. History includes every loaded active/archived thread and pagination. Named native threads support creation, rename, archive and restore. The native main-area timeline keeps encryption, composer, attachments and receipts.
 - Each native thread projects to one Kanban card on its chat board. Add card creates its named thread. Changing a linked card title renames the thread, and archive/restore is shared with the thread selector without deleting messages. Existing standalone cards remain; duplicate older linked-card content is available under Earlier linked cards.
 - Cards have optional local deadlines and a Remind action. Remind prefills the card title, deadline and thread permalink. Due dates alone do not schedule a bot message. The card records a requested time only; the bot acknowledgement confirms scheduling. Changing a deadline does not silently reschedule an already requested reminder.
@@ -69,7 +70,7 @@ published build: upstream uses that flag to disable minification for fast CI tes
 - `packages/shared-components/src/room/{RoomThreadTabs,KanbanBoard}`: presentation, stories and component tests.
 - `apps/web/src/utils/matcha/reminders.ts`, `RoomReminderViewModel.ts`, and `packages/shared-components/src/room/RoomReminder`: structured reminder form, validation and bot requests.
 - `apps/web/src/utils/matcha/documents.ts`, `RoomDocsViewModel.ts`, `components/views/rooms/RoomDocs.tsx`, and `packages/shared-components/src/room/RoomDocs`: live Markdown transport, model, CodeMirror adapter and preview.
-- `apps/web/src/components/structures/SpaceRoomView.tsx`, `components/views/rooms/SpaceDocs.tsx`, `SpaceDocsViewModel.ts`, and shared `room/SpaceDocsSetup`: Space home tabs and explicitly confirmed encrypted setup.
+- `apps/web/src/components/structures/SpaceRoomView.tsx`, `components/views/rooms/SpaceDocs.tsx`, `SpaceDocsViewModel.ts`, and shared `room/SpaceDocsSetup`: Space-owned document view and explicitly confirmed encrypted setup.
 - `apps/web/src/utils/matcha/spaceDocuments.ts`: resolves only the selected containing Space; never guesses a parent.
 - `apps/web/src/utils/matcha/encryption.ts`: shared SDK44 cached-decryption recovery for threads, boards and Docs.
 - `apps/web/playwright/e2e/room/matcha-docs.spec.ts`: real encrypted Space setup, two ordinary members across private child chats, retry and earlier-document privacy/export proof.

@@ -10,7 +10,6 @@ import { EventType, RoomType, JoinRule, Preset, type Room, RoomEvent } from "mat
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 import React, { type JSX, useCallback, useContext, useRef, useState } from "react";
-import { Button } from "@vector-im/compound-web";
 import {
     GroupIcon,
     PlusIcon,
@@ -85,6 +84,8 @@ interface IProps {
     justCreatedOpts?: IOpts;
     resizeNotifier: ResizeNotifier;
     permalinkCreator: RoomPermalinkCreator;
+    /** Controlled by the room route and the room-list Chats/Docs toggle. */
+    docs?: boolean;
     onJoinButtonClicked(): void;
     onRejectButtonClicked(): void;
 }
@@ -94,7 +95,6 @@ interface IState {
     firstRoomId?: string; // internal state for the creation wizard
     showRightPanel: boolean;
     myMembership: string;
-    docs: boolean;
 }
 
 enum Phase {
@@ -630,7 +630,6 @@ export default class SpaceRoomView extends React.PureComponent<IProps, IState> {
             phase,
             showRightPanel: this.context.rightPanelStore.isOpenForRoom(this.props.space.roomId),
             myMembership: this.props.space.getMyMembership(),
-            docs: false,
         };
     }
 
@@ -685,27 +684,8 @@ export default class SpaceRoomView extends React.PureComponent<IProps, IState> {
                     if (SdkConfig.get("matcha_thread_tabs")) {
                         return (
                             <div className="mx_SpaceRoomView_content">
-                                <nav
-                                    className="mx_SpaceRoomView_docsTabs"
-                                    aria-label={_t("matcha_space_docs|navigation")}
-                                >
-                                    <Button
-                                        kind="tertiary"
-                                        aria-current={!this.state.docs ? "page" : undefined}
-                                        onClick={() => this.setState({ docs: false })}
-                                    >
-                                        {_t("matcha_space_docs|rooms")}
-                                    </Button>
-                                    <Button
-                                        kind="tertiary"
-                                        aria-current={this.state.docs ? "page" : undefined}
-                                        onClick={() => this.setState({ docs: true })}
-                                    >
-                                        {_t("matcha_space_docs|docs")}
-                                    </Button>
-                                </nav>
                                 <div className="mx_SpaceRoomView_contentBody">
-                                    {this.state.docs ? (
+                                    {this.props.docs ? (
                                         <SpaceDocs key={this.props.space.roomId} space={this.props.space} />
                                     ) : (
                                         <SpaceLanding space={this.props.space} />
