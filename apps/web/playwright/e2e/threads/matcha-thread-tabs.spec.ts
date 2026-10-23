@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import { test, expect } from "../../element-web-test";
 import type { Page, TestInfo } from "@playwright/test";
-import { EventType } from "matrix-js-sdk/src/matrix";
+import type { EventType } from "matrix-js-sdk/src/matrix";
 
 async function dismissPreviewPrompts(page: Page): Promise<void> {
     for (const name of ["Later", "Dismiss"]) {
@@ -202,14 +202,16 @@ test.describe("Matcha room thread tabs", () => {
         user,
     }, testInfo) => {
         test.setTimeout(120_000);
-        const roomId = await app.client.createRoom({
+        // New room versions keep the creator privileged, so Alice is an invited member.
+        const roomId = await bot.createRoom({
             name: "Release planning",
+            invite: [user.userId],
+            power_level_content_override: { users: { [user.userId]: 100 } },
             initial_state: [
                 { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } },
             ],
         });
-        await app.client.inviteUser(roomId, bot.credentials!.userId);
-        await bot.joinRoom(roomId);
+        await app.client.joinRoom(roomId);
         await page.goto("/#/room/" + roomId);
         const roomNavigation = page.getByRole("navigation", { name: "Room conversations" });
         const threadTabs = page.getByRole("navigation", { name: "Open threads" });
@@ -224,12 +226,12 @@ test.describe("Matcha room thread tabs", () => {
                     args.powerType,
                     {
                         ...powers,
-                        users: { ...powers.users, [args.admin]: 100, [client.getSafeUserId()]: 0 },
+                        users: { ...powers.users, [client.getSafeUserId()]: 0 },
                     },
                     "",
                 );
             },
-            { roomId, admin: bot.credentials!.userId, powerType: EventType.RoomPowerLevels as const },
+            { roomId, powerType: "m.room.power_levels" as EventType.RoomPowerLevels },
         );
         await expect
             .poll(() =>
@@ -305,6 +307,32 @@ test.describe("Matcha room thread tabs", () => {
         await page.getByRole("button", { name: "Thread actions", exact: true }).click();
         await page.getByRole("menuitem", { name: "Archive thread", exact: true }).click();
         await page.getByRole("dialog").getByRole("button", { name: "Archive thread", exact: true }).click();
+        await expect(roomNavigation.getByRole("button", { name: "General", exact: true })).toHaveAttribute(
+            "aria-current",
+            "page",
+        );
+        await expect
+            .poll(() =>
+                app.client.evaluate(
+                    async (client, args) => {
+                        const revisions = await client.fetchRelations(args.roomId, args.rootId, "m.reference", null, {
+                            limit: 20,
+                        });
+                        for (const raw of revisions.chunk) {
+                            const event = client.getEventMapper()({ ...raw, room_id: args.roomId });
+                            await client.decryptEventIfNeeded(event);
+                            if (
+                                event.getType() === "com.matchahoneylatte.thread.metadata" &&
+                                event.getContent().archived === true
+                            )
+                                return true;
+                        }
+                        return false;
+                    },
+                    { roomId, rootId },
+                ),
+            )
+            .toBe(true);
         await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveCount(0);
         await page.reload();
         await page.getByRole("button", { name: "Thread history", exact: true }).click();
