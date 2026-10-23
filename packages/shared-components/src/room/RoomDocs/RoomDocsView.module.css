@@ -44,6 +44,10 @@ Please see LICENSE in the repository root for full details.
     padding: 0 var(--cpd-space-6x) var(--cpd-space-3x);
     border-bottom: 1px solid var(--cpd-color-border-interactive-secondary);
 }
+.toolbar button {
+    text-decoration: none !important;
+    border-radius: var(--cpd-space-2x);
+}
 .modes [aria-pressed="true"] {
     background: var(--cpd-color-bg-subtle-primary);
 }

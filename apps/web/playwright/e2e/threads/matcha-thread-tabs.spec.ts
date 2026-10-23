@@ -350,6 +350,7 @@ test.describe("Matcha room thread tabs", () => {
             .click();
         await expect(card).toContainText("Reminder requested for");
         await expect(page.getByRole("article", { name: "Ship release", exact: true })).toHaveCount(1);
+        await page.getByRole("button", { name: "Close thread history", exact: true }).click();
         await capturePreview(page, testInfo, "linked-board-preview.png");
         await card.getByRole("button", { name: "Open thread", exact: true }).click();
         await expect(threadTabs.getByRole("button", { name: "Ship release", exact: true })).toHaveAttribute(
