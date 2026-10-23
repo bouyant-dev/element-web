@@ -84,9 +84,9 @@ function MarkdownEditor({ vm, editable }: { vm: RoomDocsViewModel; editable: boo
 }
 
 /** Bind the room's encrypted collaborative document to the open-source Markdown editor. */
-export function RoomDocs({ room }: { room: Room }): JSX.Element {
+export function RoomDocs({ room, readOnly = false }: { room: Room; readOnly?: boolean }): JSX.Element {
     const client = useMatrixClientContext();
-    const vm = useCreateAutoDisposedViewModel(() => new RoomDocsViewModel({ room, client }));
+    const vm = useCreateAutoDisposedViewModel(() => new RoomDocsViewModel({ room, client, readOnly }));
     const state = useViewModel(vm);
     const download = (): void => {
         const url = URL.createObjectURL(new Blob([vm.getMarkdown()], { type: "text/markdown;charset=utf-8" }));
@@ -111,6 +111,7 @@ export function RoomDocs({ room }: { room: Room }): JSX.Element {
             editor={<MarkdownEditor vm={vm} editable={state.ready && state.canEdit} />}
             onDownload={download}
             onContentClick={onContentClick}
+            readOnlyMessage={readOnly ? _t("matcha_docs|legacy_read_only") : undefined}
         />
     );
 }

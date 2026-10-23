@@ -76,4 +76,14 @@ describe("RoomDocsViewModel", () => {
         await vm.retry();
         expect(vm.getSnapshot()).toMatchObject({ sync: "saved", pendingUpdates: 0 });
     });
+
+    it("keeps earlier chat documents read-only and opens their preview without copying or sending", async () => {
+        vm.dispose();
+        vm = new RoomDocsViewModel({ client, room, readOnly: true });
+        await vm.retry();
+        expect(vm.getSnapshot()).toMatchObject({ mode: "preview", ready: true, canEdit: false });
+        vm.setMode("edit");
+        expect(vm.getSnapshot().canEdit).toBe(false);
+        expect(client.sendEvent).not.toHaveBeenCalled();
+    });
 });

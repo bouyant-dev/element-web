@@ -54,6 +54,7 @@ export interface RoomThreadTabsProps {
     rightPanelStore: RightPanelStore;
     onBoardChange?: (board?: "room" | "all", initialThreadId?: string) => void;
     onOpenDocs?: () => void;
+    onOpenLegacyDocs?: () => void;
     reminderBot?: string;
 }
 
@@ -393,8 +394,16 @@ export class RoomThreadTabsViewModel
         this.snapshot.merge({ board });
     };
     public openDocs = (): void => {
+        if (!this.getSnapshot().canOpenSpaceDocs) return;
         this.selectionRequest++;
         this.props.onOpenDocs?.();
+    };
+    public openLegacyDocs = (): void => {
+        this.selectionRequest++;
+        this.props.onOpenLegacyDocs?.();
+    };
+    public setSpaceDocsAvailable = (canOpenSpaceDocs: boolean): void => {
+        this.snapshot.merge({ canOpenSpaceDocs });
     };
     public setDocs = (docs: boolean): void => {
         this.snapshot.merge({ docs });

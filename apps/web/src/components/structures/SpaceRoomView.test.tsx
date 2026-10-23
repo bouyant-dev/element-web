@@ -21,6 +21,15 @@ import RightPanelStore from "../../stores/right-panel/RightPanelStore.ts";
 import DMRoomMap from "../../utils/DMRoomMap.ts";
 import { type IOpts } from "../../createRoom.ts";
 import { SDKContextClass } from "../../contexts/SDKContextClass.ts";
+import SdkConfig from "../../SdkConfig";
+
+vi.mock("../views/rooms/SpaceDocs", () => ({
+    SpaceDocs: ({ space }: { space: Room }) => (
+        <div role="region" aria-label="Space document">
+            {space.roomId}
+        </div>
+    ),
+}));
 
 describe("SpaceRoomView", () => {
     let cli: MockedObject<MatrixClient>;
@@ -85,6 +94,7 @@ describe("SpaceRoomView", () => {
     });
 
     afterEach(() => {
+        SdkConfig.add({ matcha_thread_tabs: false });
         unmockPlatformPeg();
         vi.clearAllMocks();
         cleanup();
@@ -109,6 +119,25 @@ describe("SpaceRoomView", () => {
     };
 
     describe("SpaceLanding", () => {
+        it("offers joined Space Rooms and Docs tabs without changing any room state", async () => {
+            SdkConfig.add({ matcha_thread_tabs: true });
+            await renderSpaceRoomView();
+            expect(screen.getByRole("button", { name: "Rooms" })).toHaveAttribute("aria-current", "page");
+            fireEvent.click(screen.getByRole("button", { name: "Docs" }));
+            expect(screen.getByRole("region", { name: "Space document" })).toHaveTextContent(space.roomId);
+            expect(screen.getByRole("button", { name: "Docs" })).toHaveAttribute("aria-current", "page");
+            fireEvent.click(screen.getByRole("button", { name: "Rooms" }));
+            expect(screen.queryByRole("region", { name: "Space document" })).not.toBeInTheDocument();
+            expect(cli.sendStateEvent).not.toHaveBeenCalled();
+        });
+
+        it("keeps the original Space landing when beta features are disabled", async () => {
+            SdkConfig.add({ matcha_thread_tabs: false });
+            await renderSpaceRoomView();
+            expect(screen.queryByRole("navigation", { name: "Space content" })).not.toBeInTheDocument();
+            await expect(screen.findByText("Welcome to")).resolves.toBeVisible();
+        });
+
         it("should show member list right panel phase on members click on landing", async () => {
             const spy = vi.spyOn(RightPanelStore.instance, "setCard");
             const { container } = await renderSpaceRoomView();

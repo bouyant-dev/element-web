@@ -17,6 +17,7 @@ import { _t } from "../../languageHandler";
 export interface RoomDocsProps {
     client: MatrixClient;
     room: Room;
+    readOnly?: boolean;
 }
 
 function errorMessage(error?: RoomDocError): string | undefined {
@@ -46,7 +47,7 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
     public constructor(props: RoomDocsProps) {
         super(props, {
             roomName: props.room.name,
-            mode: "edit",
+            mode: props.readOnly ? "preview" : "edit",
             ready: false,
             canEdit: false,
             sync: "loading",
@@ -67,6 +68,7 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
         const state = this.session.getState();
         this.snapshot.merge({
             ...state,
+            canEdit: state.canEdit && !this.props.readOnly,
             roomName: this.props.room.name,
             error: errorMessage(state.error),
             html: this.getSnapshot().mode === "preview" ? renderMarkdown(this.getMarkdown()) : this.getSnapshot().html,

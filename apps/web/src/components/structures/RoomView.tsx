@@ -68,6 +68,9 @@ import SdkConfig from "../../SdkConfig";
 import { RoomThreadTabs } from "../views/rooms/RoomThreadTabs";
 import { KanbanBoard } from "../views/rooms/KanbanBoard";
 import { RoomDocs } from "../views/rooms/RoomDocs";
+import { SpaceDocs } from "../views/rooms/SpaceDocs";
+import { spaceForRoomDocuments } from "../../utils/matcha/spaceDocuments";
+import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
 import SettingsStore from "../../settings/SettingsStore";
@@ -243,7 +246,7 @@ export interface IRoomState {
     showRightPanel: boolean;
     matchaBoard?: "room" | "all";
     matchaBoardThreadId?: string;
-    matchaDocs?: boolean;
+    matchaDocs?: "space" | "legacy";
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -652,7 +655,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             roomId: roomId ?? undefined,
             matchaBoard: roomId === this.state.roomId ? this.state.matchaBoard : undefined,
             matchaBoardThreadId: roomId === this.state.roomId ? this.state.matchaBoardThreadId : undefined,
-            matchaDocs: roomId === this.state.roomId ? this.state.matchaDocs : false,
+            matchaDocs: roomId === this.state.roomId ? this.state.matchaDocs : undefined,
             roomAlias: roomAlias,
             roomLoading: roomLoading,
             roomLoadError,
@@ -983,6 +986,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     public componentDidMount(): void {
         this.unmounted = false;
+        this.context.spaceStore.on(UPDATE_SELECTED_SPACE, this.onMatchaSpaceChanged);
 
         this.dispatcherRef = defaultDispatcher.register(this.onAction);
         if (this.context.client) {
@@ -1077,6 +1081,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
     }
 
     public componentWillUnmount(): void {
+        this.context.spaceStore.off(UPDATE_SELECTED_SPACE, this.onMatchaSpaceChanged);
         // set a boolean to say we've been unmounted, which any pending
         // promises can use to throw away their results.
         //
@@ -1156,7 +1161,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             showRightPanel: roomId ? this.context.rightPanelStore.isOpenForRoom(roomId) : false,
             matchaBoard: threadSelected ? undefined : this.state.matchaBoard,
             matchaBoardThreadId: threadSelected ? undefined : this.state.matchaBoardThreadId,
-            matchaDocs: threadSelected ? false : this.state.matchaDocs,
+            matchaDocs: threadSelected ? undefined : this.state.matchaDocs,
         });
     };
 
@@ -1165,13 +1170,23 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.setState({
             matchaBoard,
             matchaBoardThreadId: matchaBoard === "room" ? initialThreadId : undefined,
-            matchaDocs: false,
+            matchaDocs: undefined,
         });
     };
 
     private onOpenMatchaDocs = (): void => {
+        if (!this.state.room || !spaceForRoomDocuments(this.context.spaceStore, this.state.room)) return;
         this.context.rightPanelStore.hide(this.state.roomId ?? null);
-        this.setState({ matchaDocs: true, matchaBoard: undefined, matchaBoardThreadId: undefined });
+        this.setState({ matchaDocs: "space", matchaBoard: undefined, matchaBoardThreadId: undefined });
+    };
+
+    private onOpenEarlierChatDocument = (): void => {
+        this.context.rightPanelStore.hide(this.state.roomId ?? null);
+        this.setState({ matchaDocs: "legacy", matchaBoard: undefined, matchaBoardThreadId: undefined });
+    };
+
+    private onMatchaSpaceChanged = (): void => {
+        if (this.state.matchaDocs === "space") this.setState({ matchaDocs: undefined });
     };
 
     private onPageUnload = (event: BeforeUnloadEvent): string | undefined => {
@@ -2585,7 +2600,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 RightPanelPhases.ThreadView &&
             !this.state.search;
         const boardInMain = showThreadTabs && !!this.state.matchaBoard && !this.state.search;
-        const docsInMain = showThreadTabs && !!this.state.matchaDocs && !this.state.search;
+        const docsSpace = spaceForRoomDocuments(this.context.spaceStore, this.state.room);
+        const docsInMain =
+            showThreadTabs &&
+            !this.state.search &&
+            (this.state.matchaDocs === "legacy" || (this.state.matchaDocs === "space" && !!docsSpace));
         let hideMessagePanel = threadInMain || boardInMain || docsInMain;
 
         if (this.state.search) {
@@ -2776,9 +2795,10 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         key={this.state.room.roomId}
                         room={this.state.room}
                         board={this.state.matchaBoard}
-                        docs={this.state.matchaDocs}
+                        docs={!!this.state.matchaDocs}
                         onBoardChange={this.onMatchaBoardChange}
                         onOpenDocs={this.onOpenMatchaDocs}
+                        onOpenLegacyDocs={this.onOpenEarlierChatDocument}
                     />
                     <div className="mx_RoomView_generalTimeline" hidden={threadInMain || boardInMain || docsInMain}>
                         {mainSplitBody}
@@ -2786,7 +2806,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     {threadInMain && <main className="mx_RoomView_threadTimeline">{rightPanel}</main>}
                     {docsInMain && (
                         <main className="mx_RoomView_board">
-                            <RoomDocs key={this.state.room.roomId} room={this.state.room} />
+                            {this.state.matchaDocs === "space" && docsSpace ? (
+                                <SpaceDocs key={docsSpace.roomId} space={docsSpace} />
+                            ) : (
+                                <RoomDocs key={this.state.room.roomId} room={this.state.room} readOnly />
+                            )}
                         </main>
                     )}
                     {boardInMain && (

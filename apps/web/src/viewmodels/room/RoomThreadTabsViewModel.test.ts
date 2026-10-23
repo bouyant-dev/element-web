@@ -44,6 +44,7 @@ describe("RoomThreadTabsViewModel", () => {
     let vm: RoomThreadTabsViewModel;
     const onBoardChange = vi.fn();
     const onOpenDocs = vi.fn();
+    const onOpenLegacyDocs = vi.fn();
     const panel = Object.assign(new EventEmitter(), {
         currentCardForRoom: vi.fn(),
         isOpenForRoom: vi.fn(),
@@ -98,6 +99,7 @@ describe("RoomThreadTabsViewModel", () => {
             rightPanelStore: panel as unknown as RightPanelStore,
             onBoardChange,
             onOpenDocs,
+            onOpenLegacyDocs,
             reminderBot: "@reminder:server",
         });
         await vi.waitFor(() => expect(vm.getSnapshot().threads[0]?.canManage).toBe(true));
@@ -111,7 +113,12 @@ describe("RoomThreadTabsViewModel", () => {
 
     it("loads titles and switches between native thread, General, history and a linked board", async () => {
         vm.openDocs();
+        expect(onOpenDocs).not.toHaveBeenCalled();
+        vm.setSpaceDocsAvailable(true);
+        vm.openDocs();
         expect(onOpenDocs).toHaveBeenCalledOnce();
+        vm.openLegacyDocs();
+        expect(onOpenLegacyDocs).toHaveBeenCalledOnce();
         vm.setDocs(true);
         expect(vm.getSnapshot().docs).toBe(true);
         vm.setDocs(false);

@@ -55,11 +55,13 @@ export function RoomDocsView({
     editor,
     onDownload,
     onContentClick,
+    readOnlyMessage,
 }: {
     vm: RoomDocsViewModel;
     editor: ReactNode;
     onDownload: () => void;
     onContentClick?: MouseEventHandler<HTMLDivElement>;
+    readOnlyMessage?: string;
 }): JSX.Element {
     const state = useViewModel(vm);
     return (
@@ -110,7 +112,7 @@ export function RoomDocsView({
             )}
             {state.ready && !state.canEdit && (
                 <Text size="sm" className={styles.notice}>
-                    {_t("matcha_docs|read_only")}
+                    {readOnlyMessage ?? _t("matcha_docs|read_only")}
                 </Text>
             )}
             <div className={styles.body}>

@@ -11,6 +11,7 @@ import {
     ChevronDownIcon,
     CloseIcon,
     EditIcon,
+    DocumentIcon,
     GridIcon,
     HistoryIcon,
     LinkIcon,
@@ -37,6 +38,7 @@ export interface RoomThreadTab {
 export interface RoomThreadTabsSnapshot {
     board?: "room" | "all";
     docs?: boolean;
+    canOpenSpaceDocs?: boolean;
     canRemind?: boolean;
     threads: RoomThreadTab[];
     selectedId?: string;
@@ -52,6 +54,7 @@ export interface RoomThreadTabsSnapshot {
 export interface RoomThreadTabsActions {
     openBoard: (board: "room" | "all") => void;
     openDocs: () => void;
+    openLegacyDocs: () => void;
     setReminder: () => Promise<void>;
     select: (id?: string) => void;
     create: () => Promise<void>;
@@ -134,6 +137,7 @@ export function RoomThreadTabsView({ vm }: { vm: RoomThreadTabsViewModel }): JSX
         error,
         board,
         docs,
+        canOpenSpaceDocs,
         canRemind,
     } = useViewModel(vm);
     const [moreOpen, setMoreOpen] = useState(false);
@@ -164,15 +168,6 @@ export function RoomThreadTabsView({ vm }: { vm: RoomThreadTabsViewModel }): JSX
                         onClick={() => vm.openBoard("room")}
                     >
                         {_t("matcha_threads|board")}
-                    </Button>
-                    <Button
-                        className={styles.tab}
-                        kind="secondary"
-                        size="md"
-                        aria-current={docs ? "page" : undefined}
-                        onClick={vm.openDocs}
-                    >
-                        {_t("matcha_docs|title")}
                     </Button>
                 </nav>
                 {visibleThreads.length > 0 && (
@@ -242,6 +237,20 @@ export function RoomThreadTabsView({ vm }: { vm: RoomThreadTabsViewModel }): JSX
                             Icon={GridIcon}
                             label={_t("matcha_threads|all_boards")}
                             onSelect={() => vm.openBoard("all")}
+                            hideChevron
+                        />
+                        {canOpenSpaceDocs && (
+                            <MenuItem
+                                Icon={DocumentIcon}
+                                label={_t("matcha_docs|space_docs")}
+                                onSelect={vm.openDocs}
+                                hideChevron
+                            />
+                        )}
+                        <MenuItem
+                            Icon={DocumentIcon}
+                            label={_t("matcha_docs|earlier_chat_document")}
+                            onSelect={vm.openLegacyDocs}
                             hideChevron
                         />
                         {canRemind && (

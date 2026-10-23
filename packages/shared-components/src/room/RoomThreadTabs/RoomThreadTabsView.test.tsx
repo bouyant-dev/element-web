@@ -16,6 +16,7 @@ import { MockViewModel } from "../../core/viewmodel/MockViewModel";
 class TestViewModel extends MockViewModel<RoomThreadTabsSnapshot> {
     public openBoard = vi.fn();
     public openDocs = vi.fn();
+    public openLegacyDocs = vi.fn();
     public setReminder = vi.fn().mockResolvedValue(undefined);
     public select = vi.fn();
     public create = vi.fn().mockResolvedValue(undefined);
@@ -41,23 +42,31 @@ const snapshot: RoomThreadTabsSnapshot = {
 };
 
 describe("RoomThreadTabsView", () => {
-    it("opens Docs and keeps the approved navigation on one horizontal row", async () => {
-        const vm = new TestViewModel({ ...snapshot, docs: true, selectedId: undefined });
+    it("opens Space Docs from More and keeps chat navigation on one horizontal row", async () => {
+        const vm = new TestViewModel({ ...snapshot, docs: true, selectedId: undefined, canOpenSpaceDocs: true });
         render(
             <div style={{ width: "1000px" }}>
                 <RoomThreadTabsView vm={vm} />
             </div>,
         );
-        const docs = screen.getByRole("button", { name: "Docs" });
-        expect(docs).toHaveAttribute("aria-current", "page");
+        expect(screen.queryByRole("button", { name: "Docs" })).not.toBeInTheDocument();
         expect(screen.getByRole("button", { name: "General" })).not.toHaveAttribute("aria-current");
-        await userEvent.click(docs);
+        await userEvent.click(screen.getByRole("button", { name: "More" }));
+        await userEvent.click(screen.getByRole("menuitem", { name: "Space docs" }));
         expect(vm.openDocs).toHaveBeenCalledOnce();
-        const centers = ["General", "Board", "Docs", "Project plans", "New thread", "Thread history"].map((name) => {
+        const centers = ["General", "Board", "Project plans", "New thread", "Thread history"].map((name) => {
             const rect = screen.getByRole("button", { name }).getBoundingClientRect();
             return rect.top + rect.height / 2;
         });
         expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+    });
+    it("offers earlier chat documents without inventing a Space in Home", async () => {
+        const vm = new TestViewModel(snapshot);
+        render(<RoomThreadTabsView vm={vm} />);
+        await userEvent.click(screen.getByRole("button", { name: "More" }));
+        expect(screen.queryByRole("menuitem", { name: "Space docs" })).not.toBeInTheDocument();
+        await userEvent.click(screen.getByRole("menuitem", { name: "Earlier chat document" }));
+        expect(vm.openLegacyDocs).toHaveBeenCalledOnce();
     });
     it("makes thread creation and complete history visible text actions", async () => {
         const vm = new TestViewModel(snapshot);

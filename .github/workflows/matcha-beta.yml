@@ -84,11 +84,14 @@ jobs:
                     apps/web/src/viewmodels/room/RoomThreadTabsViewModel.test.ts \
                     apps/web/src/viewmodels/room/KanbanBoardViewModel.test.ts \
                     apps/web/src/viewmodels/room/RoomDocsViewModel.test.ts \
+                    apps/web/src/viewmodels/room/SpaceDocsViewModel.test.ts \
                     apps/web/src/viewmodels/room/RoomReminderViewModel.test.ts \
                     apps/web/src/viewmodels/room-list/RoomListViewModel.test.ts \
                     apps/web/src/utils/matcha/reminders.test.ts \
                     apps/web/src/utils/matcha/threads.test.ts \
+                    apps/web/src/utils/matcha/encryption.test.ts \
                     apps/web/src/utils/matcha/documents.test.ts \
+                    apps/web/src/utils/matcha/spaceDocuments.test.ts \
                     apps/web/src/components/views/spaces/SpacePanel.test.tsx \
                     apps/web/src/components/structures/LoggedInView.test.tsx \
                     apps/web/src/components/structures/MatrixChat.test.tsx \
@@ -99,6 +102,7 @@ jobs:
                     src/room/RoomThreadTabs/RoomThreadTabsView.test.tsx \
                     src/room/KanbanBoard/KanbanBoardView.test.tsx \
                     src/room/RoomDocs/RoomDocsView.test.tsx \
+                    src/room/SpaceDocsSetup/SpaceDocsSetupView.test.tsx \
                     src/room/RoomReminder/RoomReminderView.test.tsx
                   pnpm --dir apps/web lint:types
                   pnpm --dir packages/shared-components lint:types

@@ -222,3 +222,32 @@ Please see LICENSE files in the repository root for full details.
         }
     }
 }
+
+.mx_SpaceRoomView .mx_MainSplit > .mx_SpaceRoomView_content {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.mx_SpaceRoomView_docsTabs {
+    display: flex;
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-3x) var(--cpd-space-6x);
+    border-bottom: 1px solid var(--cpd-color-border-interactive-secondary);
+}
+.mx_SpaceRoomView_docsTabs button {
+    text-decoration: none;
+}
+.mx_SpaceRoomView_docsTabs [aria-current="page"] {
+    background: var(--cpd-color-bg-subtle-primary);
+}
+.mx_SpaceRoomView_contentBody {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+.mx_SpaceRoomView_contentBody > .mx_SpaceRoomView_landing {
+    padding: var(--cpd-space-10x);
+}

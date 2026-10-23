@@ -1697,6 +1697,7 @@
         "editor_label": "Markdown document",
         "incomplete_update": "Some document updates are incomplete. Retry to load the complete document before editing.",
         "invalid_update": "An unreadable document update was found. Download your current text before retrying.",
+        "legacy_read_only": "Earlier chat document — kept private to this chat. Download a copy if needed; new shared documents live in the Space.",
         "load_error": "The complete document could not be loaded. Retry before editing.",
         "permission_error": "You no longer have permission to edit this document. Download any unsaved text.",
         "placeholder": "# Start writing together\n\nUse Markdown for headings, lists, links and code.",
@@ -1728,6 +1729,14 @@
         "title": "Set reminder",
         "validation_invalid": "Choose a future time within 365 days and enter a message of 1–2000 characters.",
         "waiting": "The invitation is pending. Once the bot joins, choose Set reminder again. Only authorised inviters can add the bot."
+    },
+    "matcha_space_docs": {
+        "confirm": "Enable encrypted Docs for %(space)s? All Space members can read and edit it and send encrypted content in this Space. Encryption is permanent. Chat permissions and chat encryption stay the same.",
+        "docs": "Docs",
+        "enable": "Enable encrypted Docs",
+        "navigation": "Space content",
+        "rooms": "Rooms",
+        "setup_error": "Setup is incomplete. Encryption may already be enabled and cannot be turned off. Check your connection and Space permissions, then try again."
     },
     "matcha_threads": {
         "archive": "Archive thread",

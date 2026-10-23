@@ -103,16 +103,18 @@
     },
     "matcha_docs": {
         "download": "Download Markdown",
+        "earlier_chat_document": "Earlier chat document",
         "edit": "Edit Markdown",
         "empty": "This document is empty. Switch to Edit Markdown to start writing together.",
-        "hint": "Changes are shared with this chat. Keep this tab open until Saved appears.",
+        "hint": "Changes are shared with members. Keep this tab open until Saved appears.",
         "loading": "Loading document…",
         "mode": "Document view",
         "offline": "Offline — edits are kept in this tab",
         "preview": "Preview",
-        "read_only": "You can read this document. Sending messages in this chat is required to edit it.",
+        "read_only": "You can read this document. Editing is restricted by its permissions.",
         "saved": "Saved",
         "saving": "Saving…",
+        "space_docs": "Space docs",
         "subtitle": "Shared notes for %(room)s.",
         "title": "Docs",
         "unsaved": "Unsaved changes"
@@ -176,6 +178,18 @@
         "timezone": "Times are in %(timezone)s.",
         "unit": "Unit",
         "when": "When"
+    },
+    "matcha_space_docs": {
+        "admin_required": "A Space administrator must enable encrypted Docs before members can use them.",
+        "chats_unchanged": "Chat permissions and chat encryption stay the same.",
+        "description": "One shared document for the members of this Space.",
+        "enable": "Enable encrypted Docs",
+        "encrypted_content": "Members can also send encrypted content in the Space itself.",
+        "members": "All Space members can read and edit this document.",
+        "permanent": "Enabling encryption is permanent.",
+        "retry": "Check setup",
+        "setting_up": "Setting up encrypted Docs…",
+        "title": "Encrypted Docs for %(space)s"
     },
     "matcha_threads": {
         "active_status": "Active",

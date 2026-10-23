@@ -1,0 +1,50 @@
+/*
+Copyright 2026 David
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+.container {
+    max-width: 36rem;
+    padding: var(--cpd-space-8x) var(--cpd-space-6x);
+    margin-inline: auto;
+    color: var(--cpd-color-text-primary);
+}
+.container h2 {
+    margin: var(--cpd-space-5x) 0 var(--cpd-space-2x);
+}
+.icon {
+    display: grid;
+    place-items: center;
+    width: var(--cpd-space-12x);
+    height: var(--cpd-space-12x);
+    border-radius: var(--cpd-space-3x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    color: var(--cpd-color-icon-accent-primary);
+}
+.icon svg {
+    width: var(--cpd-space-6x);
+    height: var(--cpd-space-6x);
+}
+.subtitle {
+    color: var(--cpd-color-text-secondary);
+}
+.details {
+    padding: var(--cpd-space-4x) var(--cpd-space-6x);
+    margin: var(--cpd-space-5x) 0;
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-subtle-secondary);
+    font: var(--cpd-font-body-sm-regular);
+}
+.details li + li {
+    margin-top: var(--cpd-space-3x);
+}
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+}
+.error {
+    color: var(--cpd-color-text-critical-primary);
+}

@@ -49,6 +49,7 @@ function ThreadTabsStory({ overrides }: { overrides?: Partial<RoomThreadTabsSnap
         openBoard: (board: "room" | "all") => setState((value) => ({ ...value, board, docs: false })),
         setReminder: fn(async () => {}),
         openDocs: () => setState((value) => ({ ...value, docs: true, board: undefined, selectedId: undefined })),
+        openLegacyDocs: () => setState((value) => ({ ...value, docs: true, board: undefined, selectedId: undefined })),
     });
     return <RoomThreadTabsView vm={vm} />;
 }

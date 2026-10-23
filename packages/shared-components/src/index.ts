@@ -116,3 +116,4 @@ export * from "./core/viewmodel";
 export * from "./room/KanbanBoard";
 export * from "./room/RoomDocs";
 export * from "./room/RoomReminder";
+export * from "./room/SpaceDocsSetup";
