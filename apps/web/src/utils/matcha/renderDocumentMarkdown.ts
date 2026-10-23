@@ -12,8 +12,9 @@ import { sanitizeHtml } from "@element-hq/element-web-shared-utils";
 import { sanitizeHtmlParams } from "../../Linkify";
 
 const renderer = new Renderer();
-const renderLink = renderer.link.bind(renderer);
-renderer.link = (token) => renderLink(token).replace("<a ", '<a target="_blank" rel="noreferrer noopener" ');
+renderer.link = function (token) {
+    return Renderer.prototype.link.call(this, token).replace("<a ", '<a target="_blank" rel="noreferrer noopener" ');
+};
 renderer.html = ({ text }) => (/^<\/?(?:sub|sup|del|s|u|br)\/?\s*>$/.test(text) ? text : escape(text));
 // Render checklist state without introducing form controls into a shared document preview.
 renderer.checkbox = ({ checked }) => (checked ? "☑ " : "☐ ");
