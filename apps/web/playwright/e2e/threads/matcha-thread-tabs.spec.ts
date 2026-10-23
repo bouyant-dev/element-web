@@ -58,7 +58,7 @@ test.describe("Matcha room thread tabs", () => {
         await page.goto("/#/room/" + roomId);
         const navigation = page.getByRole("navigation", { name: "Room conversations" });
         await navigation.getByRole("button", { name: "Project plans" }).click();
-        const threadConversation = page.getByRole("main").getByTestId("right-panel");
+        const threadConversation = page.getByRole("main").getByRole("complementary");
         await expect(threadConversation).toBeVisible();
         const composer = page.getByRole("textbox", { name: "Send an unencrypted message…" });
         await composer.fill("A reply from the main thread view");
