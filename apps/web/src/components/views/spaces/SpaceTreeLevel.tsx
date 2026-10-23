@@ -12,6 +12,7 @@ import React, {
     type ComponentProps,
     type ComponentType,
     createRef,
+    createContext,
     type InputHTMLAttributes,
     type LegacyRef,
     type RefObject,
@@ -28,7 +29,7 @@ import {
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import RoomAvatar from "../avatars/RoomAvatar";
-import { type SpaceKey } from "../../../stores/spaces";
+import { type SpaceKey, isMetaSpace, MetaSpace } from "../../../stores/spaces";
 import SpaceTreeLevelLayoutStore from "../../../stores/spaces/SpaceTreeLevelLayoutStore";
 import { NotificationBadge } from "../rooms/NotificationBadge/NotificationBadge";
 import { _t } from "../../../languageHandler";
@@ -68,6 +69,9 @@ type ButtonProps<T extends keyof HTMLElementTagNameMap> = Omit<
     onClick?(ev?: ButtonEvent): void;
 };
 
+/** Let existing space buttons leave the independent Personal page, including an already-active space. */
+export const PersonalSpaceNavigationContext = createContext(false);
+
 export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
     space,
     spaceKey: _spaceKey,
@@ -85,6 +89,7 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
     ...props
 }: ButtonProps<T>): JSX.Element => {
     const sdkContext = useContext(SDKContext);
+    const isPersonalPage = useContext(PersonalSpaceNavigationContext);
     const [menuDisplayed, handle, openMenu, closeMenu] = useContextMenu<HTMLDivElement>(innerRef);
     const [onFocus, isActive, ref] = useRovingTabIndex<HTMLDivElement>(handle);
     const tabIndex = isActive ? 0 : -1;
@@ -142,7 +147,14 @@ export const SpaceButton = <T extends keyof HTMLElementTagNameMap>({
         // space is set here because of the assignment condition of onClick
         defaultDispatcher.dispatch({ action: Action.ViewRoom, room_id: space!.roomId });
     const activateSpace = (): void => {
-        if (spaceKey) sdkContext.spaceStore.setActiveSpace(spaceKey);
+        if (!spaceKey) return;
+        if (isPersonalPage && spaceKey === MetaSpace.Home) {
+            defaultDispatcher.fire(Action.ViewHomePage);
+        } else if (isPersonalPage && spaceKey === sdkContext.spaceStore.activeSpace) {
+            if (isMetaSpace(spaceKey))
+                defaultDispatcher.dispatch({ action: Action.ViewHomePage, context_switch: true });
+            else defaultDispatcher.dispatch({ action: Action.ViewRoom, room_id: spaceKey });
+        } else sdkContext.spaceStore.setActiveSpace(spaceKey);
     };
     const onClick = props.onClick ?? (selected && space ? viewSpaceHome : activateSpace);
 

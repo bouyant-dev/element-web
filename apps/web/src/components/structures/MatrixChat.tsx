@@ -830,6 +830,10 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             case Action.ViewHomePage:
                 this.viewHome(payload.justRegistered);
                 break;
+            case Action.ViewPersonalPage:
+                if (SdkConfig.get("matcha_thread_tabs")) this.viewPersonal();
+                else dis.fire(Action.ViewHomePage);
+                break;
             case Action.Share:
                 this.viewShare(payload.format, payload.msg);
                 break;
@@ -1110,6 +1114,12 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         });
         this.setPage(PageType.HomePage);
         this.notifyNewScreen("home");
+    }
+
+    private viewPersonal(): void {
+        this.setStateForNewView({ view: Views.LOGGED_IN, currentRoomId: null });
+        this.setPage(PageType.PersonalPage);
+        this.notifyNewScreen("personal");
     }
 
     private viewUser(userId: string, subAction: string): void {
@@ -1910,6 +1920,8 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             dis.dispatch({
                 action: Action.ViewHomePage,
             });
+        } else if (screen === "personal") {
+            dis.fire(SdkConfig.get("matcha_thread_tabs") ? Action.ViewPersonalPage : Action.ViewHomePage);
         } else if (screen === "directory") {
             dis.fire(Action.ViewRoomDirectory);
         } else if (screen === "start_sso" || screen === "start_cas") {

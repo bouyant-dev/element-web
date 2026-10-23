@@ -1441,6 +1441,32 @@ describe("<MatrixChat />", () => {
         });
 
         describe("showScreen", () => {
+            it("opens the Personal deep link without a selected room and returns to Home", async () => {
+                await getComponentAndWaitForReady({
+                    config: { ...defaultProps.config, matcha_thread_tabs: true },
+                    initialScreenAfterLogin: { screen: "personal", params: {} },
+                });
+                await expect(screen.findByRole("heading", { name: "All boards" })).resolves.toBeVisible();
+                expect(defaultProps.onNewScreen).toHaveBeenLastCalledWith("personal", false);
+                expect(screen.queryByRole("navigation", { name: "Room conversations" })).not.toBeInTheDocument();
+                const personal = screen.getByRole("button", { name: "Personal" });
+                expect(personal.closest("[role=treeitem]")).toHaveAttribute("aria-selected", "true");
+                fireEvent.click(screen.getByRole("button", { name: "Home" }));
+                await expect(screen.findByRole("heading", { name: "Welcome Ernie" })).resolves.toBeVisible();
+                expect(defaultProps.onNewScreen).toHaveBeenLastCalledWith("home", false);
+                expect(personal.closest("[role=treeitem]")).toHaveAttribute("aria-selected", "false");
+            });
+
+            it("keeps the Personal deep link unavailable when beta features are disabled", async () => {
+                await getComponentAndWaitForReady({
+                    initialScreenAfterLogin: { screen: "personal", params: {} },
+                });
+                await expect(screen.findByRole("heading", { name: "Welcome Ernie" })).resolves.toBeVisible();
+                expect(defaultProps.onNewScreen).toHaveBeenLastCalledWith("home", false);
+                expect(screen.queryByRole("button", { name: "Personal" })).not.toBeInTheDocument();
+                expect(screen.queryByRole("heading", { name: "All boards" })).not.toBeInTheDocument();
+            });
+
             it("should show the 'share' screen", async () => {
                 await getComponent({
                     initialScreenAfterLogin: { screen: "share", params: { msg: "Hello", format: ShareFormat.Text } },

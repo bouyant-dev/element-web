@@ -86,6 +86,10 @@ jobs:
                     apps/web/src/viewmodels/room-list/RoomListViewModel.test.ts \
                     apps/web/src/utils/matcha/reminders.test.ts \
                     apps/web/src/utils/matcha/threads.test.ts \
+                    apps/web/src/components/views/spaces/SpacePanel.test.tsx \
+                    apps/web/src/components/structures/LoggedInView.test.tsx \
+                    apps/web/src/components/structures/MatrixChat.test.tsx \
+                    apps/web/src/stores/RoomViewStore.test.ts \
                     apps/web/src/components/structures/RoomView.test.tsx \
                     apps/web/src/components/structures/ThreadView.test.tsx
                   pnpm --dir packages/shared-components exec vitest run --project unit \

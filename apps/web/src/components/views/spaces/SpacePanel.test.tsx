@@ -25,6 +25,8 @@ import SettingsStore from "../../../settings/SettingsStore";
 import UnwrappedSpacePanel from "./SpacePanel";
 import defaultDispatcher from "../../../dispatcher/dispatcher";
 import { Action } from "../../../dispatcher/actions";
+import SdkConfig from "../../../SdkConfig";
+import PageType from "../../../PageTypes";
 
 // DND test utilities based on
 // https://github.com/colinrobertbrooks/react-beautiful-dnd-test-utils/issues/18#issuecomment-1373388693
@@ -135,7 +137,13 @@ describe("<SpacePanel />", () => {
     });
 
     beforeEach(() => {
-        sdkContext.spaceStore.enabledMetaSpaces.push(MetaSpace.Home, MetaSpace.Orphans, MetaSpace.VideoRooms);
+        sdkContext.spaceStore.enabledMetaSpaces.splice(
+            0,
+            sdkContext.spaceStore.enabledMetaSpaces.length,
+            MetaSpace.Home,
+            MetaSpace.Orphans,
+            MetaSpace.VideoRooms,
+        );
         vi.mocked(shouldShowComponent).mockClear().mockReturnValue(true);
     });
     afterEach(() => {
@@ -164,6 +172,53 @@ describe("<SpacePanel />", () => {
         expect(metaSpaceLabels).toEqual(["Home", "Other rooms", "Conferences"]);
 
         spySettingsStore.mockRestore();
+    });
+
+    describe("Personal workspace", () => {
+        beforeEach(() => {
+            SdkConfig.add({ matcha_thread_tabs: true });
+            Object.assign(sdkContext.spaceStore, { activeSpace: MetaSpace.Home });
+        });
+
+        afterEach(() => {
+            SdkConfig.add({ matcha_thread_tabs: false });
+            Object.assign(sdkContext.spaceStore, { activeSpace: "!space1" });
+        });
+
+        it("keeps Personal directly after Home and dispatches its own page action", () => {
+            const fire = vi.spyOn(defaultDispatcher, "fire");
+            render(<SpacePanel pageType={PageType.HomePage} />);
+            const tree = screen.getByRole("tree", { name: "Spaces" });
+            const personal = within(tree).getByRole("button", { name: "Personal" });
+            const names = within(tree)
+                .getAllByRole("treeitem")
+                .map((item) =>
+                    within(item)
+                        .getByRole("button", { name: /^(?!Options$).*/ })
+                        .getAttribute("aria-label"),
+                );
+            expect(names.slice(0, 2)).toEqual(["Home", "Personal"]);
+            fireEvent.click(personal);
+            expect(fire).toHaveBeenCalledWith(Action.ViewPersonalPage);
+            fire.mockRestore();
+        });
+
+        it("selects Personal independently of the active space and restores the Home selection", () => {
+            const { rerender } = render(<SpacePanel pageType={PageType.PersonalPage} />);
+            const personal = screen.getByRole("button", { name: "Personal" });
+            const home = screen.getByRole("button", { name: "Home" });
+            expect(personal.closest("[role=treeitem]")).toHaveAttribute("aria-selected", "true");
+            expect(home.closest("[role=treeitem]")).toHaveAttribute("aria-selected", "false");
+            rerender(<SpacePanel pageType={PageType.HomePage} />);
+            expect(personal.closest("[role=treeitem]")).toHaveAttribute("aria-selected", "false");
+            expect(home.closest("[role=treeitem]")).toHaveAttribute("aria-selected", "true");
+        });
+
+        it("hides Personal when beta features are disabled", () => {
+            SdkConfig.add({ matcha_thread_tabs: false });
+            render(<SpacePanel />);
+            expect(screen.queryByRole("button", { name: "Personal" })).not.toBeInTheDocument();
+        });
     });
 
     describe("create new space button", () => {

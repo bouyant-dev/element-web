@@ -92,7 +92,7 @@ const landmarkToDomElementMap: Record<Landmark, () => HTMLElement | null | undef
             // Special case where the element does exist but we focus it through an action.
             return undefined;
         } else {
-            return document.querySelector<HTMLElement>(".mx_HomePage");
+            return document.querySelector<HTMLElement>(".mx_HomePage, .mx_PersonalPage");
         }
     },
 };

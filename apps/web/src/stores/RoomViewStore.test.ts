@@ -26,6 +26,7 @@ import {
 } from "test-utils";
 
 import { RoomViewStore } from "./RoomViewStore";
+import SdkConfig from "../SdkConfig";
 import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
 import { SlidingSyncManager } from "../SlidingSyncManager";
@@ -414,14 +415,16 @@ describe("RoomViewStore", function () {
         expect(roomViewStore.getRoomSummary()).toBeUndefined();
     });
 
-    it("removes the roomId on ViewHomePage", async () => {
+    it.each([Action.ViewHomePage, Action.ViewPersonalPage])("removes the roomId on %s", async (action) => {
+        SdkConfig.add({ matcha_thread_tabs: true });
         dis.dispatch({ action: Action.ViewRoom, room_id: roomId });
         await untilDispatch(Action.ActiveRoomChanged, dis);
         expect(roomViewStore.getRoomId()).toEqual(roomId);
 
-        dis.dispatch({ action: Action.ViewHomePage });
+        dis.dispatch({ action });
         await untilEmission(roomViewStore, UPDATE_EVENT);
         expect(roomViewStore.getRoomId()).toBeNull();
+        SdkConfig.add({ matcha_thread_tabs: false });
     });
 
     it("when viewing a call without a broadcast, it should not raise an error", async () => {

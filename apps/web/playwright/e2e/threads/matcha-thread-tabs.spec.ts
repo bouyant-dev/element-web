@@ -103,7 +103,7 @@ test.describe("Matcha room thread tabs", () => {
         await expect(composer).toBeVisible();
     });
 
-    test("shares room cards, archives and restores them, and recaps cards across joined rooms", async ({
+    test("shares room cards, archives and restores them, and opens Personal from Home across joined rooms", async ({
         page,
         app,
         user,
@@ -177,7 +177,18 @@ test.describe("Matcha room thread tabs", () => {
         expect(JSON.stringify(wire)).not.toContain("Ship beta navigation");
         expect(JSON.stringify(wire)).not.toContain("Keep this card content after archiving.");
         await createCard(operations, "Check deployments");
-        await chooseMore(page, "All boards");
+        const spaces = page.getByRole("tree", { name: "Spaces" });
+        const personal = spaces.getByRole("button", { name: "Personal", exact: true });
+        await page.goto("/#/home");
+        await expect(personal).toBeVisible();
+        await personal.click();
+        await expect(page).toHaveURL((url) => url.hash === "#/personal");
+        await expect(spaces.getByRole("treeitem").filter({ has: personal })).toHaveAttribute("aria-selected", "true");
+        await expect(page.getByRole("article", { name: "Ship beta navigation" })).toBeVisible();
+        await expect(page.getByRole("article", { name: "Check deployments" })).toBeVisible();
+        await page.reload();
+        await expect(page).toHaveURL((url) => url.hash === "#/personal");
+        await expect(spaces.getByRole("treeitem").filter({ has: personal })).toHaveAttribute("aria-selected", "true");
         await expect(page.getByRole("article", { name: "Ship beta navigation" })).toBeVisible();
         await expect(page.getByRole("article", { name: "Check deployments" })).toBeVisible();
         await capturePreview(page, testInfo, "all-boards-preview.png");
@@ -191,9 +202,14 @@ test.describe("Matcha room thread tabs", () => {
                 .getByRole("button", { name: "General", exact: true }),
         ).toHaveAttribute("aria-current", "page");
         await dismissPreviewPrompts(page);
-        await chooseMore(page, "All boards");
+        await personal.click();
         await projectCard.getByRole("button", { name: "Open Project", exact: true }).click();
         await expect(page).toHaveURL((url) => decodeURIComponent(url.hash) === "#/room/" + project);
+        await personal.click();
+        await spaces.getByRole("button", { name: "Home", exact: true }).click();
+        await expect(page).toHaveURL((url) => url.hash === "#/home");
+        await expect(spaces.getByRole("treeitem").filter({ has: personal })).toHaveAttribute("aria-selected", "false");
+        await expect(page.getByRole("article", { name: "Ship beta navigation" })).toHaveCount(0);
     });
     test("manages named encrypted threads as a regular member and links them to cards", async ({
         page,
@@ -371,7 +387,8 @@ test.describe("Matcha room thread tabs", () => {
         expect(JSON.stringify(wire.cards)).not.toContain(rootId);
         const otherRoom = await app.client.createRoom({ name: "Operations" });
         await page.goto("/#/room/" + otherRoom);
-        await chooseMore(page, "All boards");
+        await page.getByRole("tree", { name: "Spaces" }).getByRole("button", { name: "Personal", exact: true }).click();
+        await expect(page).toHaveURL((url) => url.hash === "#/personal");
         await card.getByRole("button", { name: "Open thread", exact: true }).click();
         await expect(page).toHaveURL((url) => decodeURIComponent(url.hash) === "#/room/" + roomId);
         await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveAttribute(

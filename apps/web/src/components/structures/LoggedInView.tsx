@@ -58,6 +58,9 @@ import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import { type SwitchSpacePayload } from "../../dispatcher/payloads/SwitchSpacePayload";
 import LeftPanelLiveShareWarning from "../views/beacon/LeftPanelLiveShareWarning";
 import HomePage from "./HomePage";
+import { KanbanBoard } from "../views/rooms/KanbanBoard";
+import SdkConfig from "../../SdkConfig";
+import { _t } from "../../languageHandler";
 import { PipContainer } from "./PipContainer";
 import { monitorSyncedPushRules } from "../../utils/pushRules/monitorSyncedPushRules";
 import { MatrixClientContextProvider } from "./MatrixClientContextProvider";
@@ -642,6 +645,19 @@ class LoggedInView extends React.Component<IProps, IState> {
             case PageTypes.HomePage:
                 pageElement = <HomePage justRegistered={this.props.justRegistered} />;
                 break;
+            case PageTypes.PersonalPage:
+                pageElement = SdkConfig.get("matcha_thread_tabs") ? (
+                    <main
+                        className="mx_RoomView_board mx_PersonalPage"
+                        aria-label={_t("matcha_personal|title")}
+                        tabIndex={-1}
+                    >
+                        <KanbanBoard />
+                    </main>
+                ) : (
+                    <HomePage justRegistered={this.props.justRegistered} />
+                );
+                break;
 
             case PageTypes.UserView:
                 if (!!this.props.currentUserId) {
@@ -698,7 +714,7 @@ class LoggedInView extends React.Component<IProps, IState> {
             // (leftPanel omits it).
             content = (
                 <GroupView vm={resizerViewModel}>
-                    <SpacePanel />
+                    <SpacePanel pageType={this.props.page_type} />
                     <LeftResizablePanelView
                         vm={resizerViewModel}
                         className="mx_LeftPanel_panel"
@@ -718,7 +734,7 @@ class LoggedInView extends React.Component<IProps, IState> {
             // own layout.
             content = (
                 <>
-                    <SpacePanel />
+                    <SpacePanel pageType={this.props.page_type} />
                     {leftPanel}
                     {roomView}
                 </>

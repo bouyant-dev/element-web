@@ -10,6 +10,7 @@ Please see LICENSE files in the repository root for full details.
 /** The types of page which can be shown by the LoggedInView */
 enum PageType {
     HomePage = "home_page",
+    PersonalPage = "personal_page",
     RoomView = "room_view",
     UserView = "user_view",
 }

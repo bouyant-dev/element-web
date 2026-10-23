@@ -43,6 +43,7 @@ import { type ViewRoomErrorPayload } from "../dispatcher/payloads/ViewRoomErrorP
 import ErrorDialog from "../components/views/dialogs/ErrorDialog";
 import { type ActiveRoomChangedPayload } from "../dispatcher/payloads/ActiveRoomChangedPayload";
 import SettingsStore from "../settings/SettingsStore";
+import SdkConfig from "../SdkConfig";
 import { awaitRoomDownSync } from "../utils/RoomUpgrade";
 import { UPDATE_EVENT } from "./AsyncStore";
 import { type SDKContextClass } from "../contexts/SDKContextClass";
@@ -233,6 +234,8 @@ export class RoomViewStore extends EventEmitter {
             // for these events blank out the roomId as we are no longer in the RoomView
             case "view_welcome_page":
             case Action.ViewHomePage:
+            case Action.ViewPersonalPage:
+                if (payload.action === Action.ViewPersonalPage && !SdkConfig.get("matcha_thread_tabs")) break;
                 this.setState({
                     roomId: null,
                     roomAlias: null,

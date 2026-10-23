@@ -30,13 +30,16 @@ import {
     VideoCallSolidIcon,
     PlusIcon,
     ChevronRightIcon,
+    GridIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 import { useCreateAutoDisposedViewModel, UserMenu } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { useContextMenu } from "../../structures/ContextMenu";
 import SpaceCreateMenu from "./SpaceCreateMenu";
-import { SpaceButton, SpaceItem } from "./SpaceTreeLevel";
+import { PersonalSpaceNavigationContext, SpaceButton, SpaceItem } from "./SpaceTreeLevel";
+import PageType from "../../../PageTypes";
+import SdkConfig from "../../../SdkConfig";
 import { useEventEmitter, useEventEmitterState } from "../../../hooks/useEventEmitter";
 import {
     getMetaSpaceName,
@@ -278,16 +281,36 @@ interface IInnerSpacePanelProps extends DroppableProvidedProps {
 const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
     ({ children, isPanelCollapsed, setPanelCollapsed, isDraggingOver, innerRef, ...props }) => {
         const sdkContext = useContext(SDKContext);
+        const isPersonalPage = useContext(PersonalSpaceNavigationContext);
         const [invites, metaSpaces, actualSpaces, activeSpace] = useSpaces();
-        const activeSpaces = activeSpace ? [activeSpace] : [];
+        const activeSpaces = !isPersonalPage && activeSpace ? [activeSpace] : [];
 
         const moduleSpaceItems = useModuleSpacePanelItems(ModuleApi.instance.extras);
 
+        const personalButton = SdkConfig.get("matcha_thread_tabs") ? (
+            <MetaSpaceButton
+                key="personal"
+                selected={isPersonalPage}
+                isPanelCollapsed={isPanelCollapsed}
+                label={_t("matcha_personal|title")}
+                size="32px"
+                icon={<GridIcon />}
+                onClick={() => defaultDispatcher.fire(Action.ViewPersonalPage)}
+            />
+        ) : null;
+
         const metaSpacesSection = metaSpaces
             .filter((key) => !(key === MetaSpace.VideoRooms && !SettingsStore.getValue("feature_video_rooms")))
-            .map((key) => {
+            .flatMap((key) => {
                 const Component = metaSpaceComponentMap[key];
-                return <Component key={key} selected={activeSpace === key} isPanelCollapsed={isPanelCollapsed} />;
+                const button = (
+                    <Component
+                        key={key}
+                        selected={!isPersonalPage && activeSpace === key}
+                        isPanelCollapsed={isPanelCollapsed}
+                    />
+                );
+                return key === MetaSpace.Home ? [button, personalButton] : [button];
             });
 
         return (
@@ -306,6 +329,7 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
                 role="tree"
                 aria-label={_t("common|spaces")}
             >
+                {!metaSpaces.includes(MetaSpace.Home) && personalButton}
                 {metaSpacesSection}
                 {invites.map((s) => (
                     <SpaceItem
@@ -341,13 +365,13 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
                             collapsed: isPanelCollapsed,
                         })}
                         role="treeitem"
-                        aria-selected={false} // TODO
+                        aria-selected={!isPersonalPage && activeSpace === item.spaceKey}
                     >
                         <SpaceButton
                             {...item}
                             isNarrow={isPanelCollapsed}
                             size="32px"
-                            selected={activeSpace === item.spaceKey}
+                            selected={!isPersonalPage && activeSpace === item.spaceKey}
                             onClick={() => {
                                 sdkContext.spaceStore.setActiveSpace(item.spaceKey);
                                 item.onSelected?.();
@@ -363,9 +387,10 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
     },
 );
 
-const SpacePanel: React.FC = () => {
+const SpacePanel: React.FC<{ pageType?: string }> = ({ pageType }) => {
     const sdkContext = useContext(SDKContext);
     const client = sdkContext.client!;
+    const isPersonalPage = !!SdkConfig.get("matcha_thread_tabs") && pageType === PageType.PersonalPage;
     const [dragging, setDragging] = useState(false);
     const [isPanelCollapsed, setPanelCollapsed] = useState(true);
     const ref = useRef<HTMLDivElement>(null);
@@ -455,15 +480,17 @@ const SpacePanel: React.FC = () => {
                         </AccessibleButton>
                         <Droppable droppableId="top-level-spaces">
                             {(provided, snapshot) => (
-                                <InnerSpacePanel
-                                    {...provided.droppableProps}
-                                    isPanelCollapsed={isPanelCollapsed}
-                                    setPanelCollapsed={setPanelCollapsed}
-                                    isDraggingOver={snapshot.isDraggingOver}
-                                    innerRef={provided.innerRef}
-                                >
-                                    {provided.placeholder}
-                                </InnerSpacePanel>
+                                <PersonalSpaceNavigationContext.Provider value={isPersonalPage}>
+                                    <InnerSpacePanel
+                                        {...provided.droppableProps}
+                                        isPanelCollapsed={isPanelCollapsed}
+                                        setPanelCollapsed={setPanelCollapsed}
+                                        isDraggingOver={snapshot.isDraggingOver}
+                                        innerRef={provided.innerRef}
+                                    >
+                                        {provided.placeholder}
+                                    </InnerSpacePanel>
+                                </PersonalSpaceNavigationContext.Provider>
                             )}
                         </Droppable>
 

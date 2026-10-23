@@ -21,6 +21,7 @@ synced with official stable releases, not upgrading Synapse.
 - Archive/restore removes threads from beta's selector for everyone and preserves their messages. Other Matrix clients can still show these threads. Normal message permissions govern new archive/rename metadata; old archive state remains readable.
 - Per-chat Kanban: To do, In progress, Done; card title and optional description; create/edit, accessible status selector, action menu, confirmed archive and restore.
 - All boards collects cards only from currently joined chats, labels each source chat, and opens its source. Cards can link/unlink a thread, and Open thread works from room and universal boards. Leaving a chat immediately removes its cards. Background updates preserve cards and drafts without a refresh icon or loading flash.
+- Personal is a permanent beta sidebar entry next to Home, available without selecting a chat. `#/personal` opens the same joined-chat Kanban recap and survives reload. Cards remain shared with their original chats; Personal does not create a Matrix room or private copies. It cannot be removed or reordered with spaces.
 - Reminder action sends an encrypted Matrix command to a dedicated bot. The bot persists schedules independently of browsers and posts in the same chat at the due time.
 - No destructive thread deletion, automatic bot invitations, or real-room test messages are authorised.
 
@@ -46,6 +47,7 @@ published build: upstream uses that flag to disable minification for fast CI tes
 ## Source map and protocols
 
 - `apps/web/src/components/structures/RoomView.tsx`: main-area integration.
+- `apps/web/src/components/structures/{MatrixChat,LoggedInView}.tsx` and `apps/web/src/components/views/spaces/{SpacePanel,SpaceTreeLevel}.tsx`: Personal routing, rendering, and permanent sidebar navigation.
 - `apps/web/src/viewmodels/room/RoomThreadTabsViewModel.ts`: thread tabs and archive.
 - `apps/web/src/viewmodels/room/KanbanBoardViewModel.ts`: boards, permissions, pagination and decrypted revisions.
 - `packages/shared-components/src/room/{RoomThreadTabs,KanbanBoard}`: presentation, stories and component tests.

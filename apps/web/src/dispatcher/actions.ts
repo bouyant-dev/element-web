@@ -62,6 +62,9 @@ export enum Action {
      */
     ViewHomePage = "view_home_page",
 
+    /** Open the beta client's aggregate personal board. */
+    ViewPersonalPage = "view_personal_page",
+
     /**
      * Forces the theme to reload. No additional payload information required.
      */
