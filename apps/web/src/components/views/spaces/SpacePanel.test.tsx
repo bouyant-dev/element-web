@@ -185,7 +185,7 @@ describe("<SpacePanel />", () => {
             Object.assign(sdkContext.spaceStore, { activeSpace: "!space1" });
         });
 
-        it("keeps Personal directly after Home and dispatches its own page action", () => {
+        it("keeps Personal above Home and dispatches its own page action", () => {
             const fire = vi.spyOn(defaultDispatcher, "fire");
             render(<SpacePanel pageType={PageType.HomePage} />);
             const tree = screen.getByRole("tree", { name: "Spaces" });
@@ -197,7 +197,7 @@ describe("<SpacePanel />", () => {
                         .getByRole("button", { name: /^(?!Options$).*/ })
                         .getAttribute("aria-label"),
                 );
-            expect(names.slice(0, 2)).toEqual(["Home", "Personal"]);
+            expect(names.slice(0, 2)).toEqual(["Personal", "Home"]);
             fireEvent.click(personal);
             expect(fire).toHaveBeenCalledWith(Action.ViewPersonalPage);
             fire.mockRestore();

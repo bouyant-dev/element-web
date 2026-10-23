@@ -706,9 +706,11 @@ class LoggedInView extends React.Component<IProps, IState> {
         );
 
         const roomView = <div className="mx_RoomView_wrapper">{pageElement}</div>;
+        const isPersonalPage = !!SdkConfig.get("matcha_thread_tabs") && this.props.page_type === PageTypes.PersonalPage;
 
         let content: React.ReactNode;
-        const resizerViewModel = !moduleRenderer ? this.getResizerViewModel() : undefined;
+        if (isPersonalPage) this.disposeResizerViewModel();
+        const resizerViewModel = !moduleRenderer && !isPersonalPage ? this.getResizerViewModel() : undefined;
         if (resizerViewModel && !moduleRenderer) {
             // Resizable layout with a draggable separator. The SpacePanel lives inside GroupView
             // (leftPanel omits it).
@@ -729,13 +731,11 @@ class LoggedInView extends React.Component<IProps, IState> {
                 </GroupView>
             );
         } else {
-            // Fallback layout for a module's full-screen view (e.g. multiroom) which must not use the
-            // resizable layout above. The ResizeHandle is dropped for module views, which manage their
-            // own layout.
+            // Personal and full-screen module views do not use the chat-list resizer.
             content = (
                 <>
                     <SpacePanel pageType={this.props.page_type} />
-                    {leftPanel}
+                    {!isPersonalPage && leftPanel}
                     {roomView}
                 </>
             );

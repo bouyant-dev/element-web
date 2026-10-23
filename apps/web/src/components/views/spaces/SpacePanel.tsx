@@ -30,7 +30,7 @@ import {
     VideoCallSolidIcon,
     PlusIcon,
     ChevronRightIcon,
-    GridIcon,
+    ComposeIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 import { useCreateAutoDisposedViewModel, UserMenu } from "@element-hq/web-shared-components";
 
@@ -294,23 +294,22 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
                 isPanelCollapsed={isPanelCollapsed}
                 label={_t("matcha_personal|title")}
                 size="32px"
-                icon={<GridIcon />}
+                icon={<ComposeIcon />}
                 onClick={() => defaultDispatcher.fire(Action.ViewPersonalPage)}
             />
         ) : null;
 
         const metaSpacesSection = metaSpaces
             .filter((key) => !(key === MetaSpace.VideoRooms && !SettingsStore.getValue("feature_video_rooms")))
-            .flatMap((key) => {
+            .map((key) => {
                 const Component = metaSpaceComponentMap[key];
-                const button = (
+                return (
                     <Component
                         key={key}
                         selected={!isPersonalPage && activeSpace === key}
                         isPanelCollapsed={isPanelCollapsed}
                     />
                 );
-                return key === MetaSpace.Home ? [button, personalButton] : [button];
             });
 
         return (
@@ -329,7 +328,7 @@ const InnerSpacePanel = React.memo<IInnerSpacePanelProps>(
                 role="tree"
                 aria-label={_t("common|spaces")}
             >
-                {!metaSpaces.includes(MetaSpace.Home) && personalButton}
+                {personalButton}
                 {metaSpacesSection}
                 {invites.map((s) => (
                     <SpaceItem
