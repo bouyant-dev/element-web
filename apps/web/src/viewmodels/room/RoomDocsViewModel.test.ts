@@ -50,7 +50,7 @@ describe("RoomDocsViewModel", () => {
     });
 
     it("binds the shared text, renders safe Markdown and follows room names", async () => {
-        expect(vm.getSnapshot()).toMatchObject({ roomName: "Product", mode: "edit", ready: true, canEdit: true });
+        expect(vm.getSnapshot()).toMatchObject({ roomName: "Product", mode: "split", ready: true, canEdit: true });
         vm.getText().insert(0, "# Shared plan\n\n<script>alert(1)</script>");
         expect(vm.getMarkdown()).toContain("# Shared plan");
         expect(vm.getSnapshot().pendingUpdates).toBe(1);

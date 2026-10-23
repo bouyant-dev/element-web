@@ -48,10 +48,12 @@ export function documentErrorMessage(error?: RoomDocError): string | undefined {
 export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsProps> implements RoomDocsActions {
     private readonly session: RoomDocumentSession;
     private readonly catalog?: SpaceDocumentCatalog;
+    private previewTimer?: ReturnType<typeof setTimeout>;
+    private renderedMarkdown?: string;
     public constructor(props: RoomDocsProps) {
         super(props, {
             roomName: props.room.name,
-            mode: props.readOnly ? "preview" : "edit",
+            mode: props.readOnly ? "preview" : "split",
             ready: false,
             canEdit: false,
             sync: "loading",
@@ -71,6 +73,7 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
         this.disposables.track(() => {
             this.session.removeEventListener("change", this.publish);
             this.session.release();
+            clearTimeout(this.previewTimer);
         });
         this.disposables.trackListener(props.room, RoomEvent.Name, this.publish);
         this.publish();
@@ -84,6 +87,7 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
         const error =
             documentErrorMessage(catalog?.error ?? state.error) ??
             (missingDocument ? _t("matcha_space_docs|not_found") : undefined);
+        const markdown = this.getMarkdown();
         this.snapshot.merge({
             ...state,
             ready: state.ready && (!catalog || (catalog.ready && !!document)),
@@ -93,16 +97,30 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
             documentName: catalog ? (document?.title ?? _t("matcha_space_docs|default_name")) : undefined,
             roomName: this.props.room.name,
             error,
-            html: this.getSnapshot().mode === "preview" ? renderMarkdown(this.getMarkdown()) : this.getSnapshot().html,
+            wordCount: markdown.trim() ? markdown.trim().split(/\s+/u).length : 0,
+            characterCount: markdown.length,
         });
+        if (this.getSnapshot().mode !== "edit" && markdown !== this.renderedMarkdown) {
+            clearTimeout(this.previewTimer);
+            if (this.renderedMarkdown === undefined) this.renderPreview();
+            else this.previewTimer = setTimeout(this.renderPreview, 150);
+        }
+    };
+    private renderPreview = (): void => {
+        if (this.isDisposed || this.getSnapshot().mode === "edit") return;
+        const markdown = this.getMarkdown();
+        this.renderedMarkdown = markdown;
+        this.snapshot.merge({ html: renderMarkdown(markdown) });
     };
     /** Shared text passed directly to the official Yjs CodeMirror binding. */
     public getText = (): Y.Text => this.session.text;
     /** Includes local unsent edits, so the user can download/copy recovery text. */
     public getMarkdown = (): string => this.session.text.toJSON();
-    public setMode = (mode: "edit" | "preview"): void => {
+    public setMode = (mode: "edit" | "split" | "preview"): void => {
+        clearTimeout(this.previewTimer);
         this.snapshot.merge({ mode });
         this.publish();
+        this.renderPreview();
     };
     public retry = async (): Promise<void> => {
         await this.catalog?.retry();
