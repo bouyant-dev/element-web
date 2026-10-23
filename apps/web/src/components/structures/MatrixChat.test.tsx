@@ -784,8 +784,9 @@ describe("<MatrixChat />", () => {
 
         const getComponentAndWaitForReady = async (
             props: Partial<ComponentProps<typeof MatrixChat>> = {},
+            ref?: RefObject<MatrixChat | null>,
         ): Promise<RenderResult> => {
-            const renderResult = getComponent(props);
+            const renderResult = getComponent(props, ref);
 
             // we think we are logged in, but are still waiting for the /sync to complete
             await screen.findByText("Logout");
@@ -1441,6 +1442,84 @@ describe("<MatrixChat />", () => {
         });
 
         describe("showScreen", () => {
+            describe("Space Docs cached sync navigation", () => {
+                const docsScreen = "room/!space:server.org";
+                const params = { view: "docs" };
+                const prepare = async () => {
+                    const ref = createRef<MatrixChat>();
+                    const view = await getComponentAndWaitForReady(
+                        {
+                            config: { ...defaultProps.config, matcha_thread_tabs: true },
+                        },
+                        ref,
+                    );
+                    mockClient.getSyncStateData = vi.fn().mockReturnValue({ fromCache: true });
+                    vi.mocked(defaultDispatcher.dispatch).mockClear();
+                    act(() => ref.current!.showScreen(docsScreen, params));
+                    expect(defaultDispatcher.dispatch).not.toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            action: Action.ViewRoom,
+                            matcha_space_docs: true,
+                        }),
+                    );
+                    return { view, instance: ref.current! };
+                };
+
+                it.each([SyncState.Prepared, SyncState.Syncing])(
+                    "resumes the Docs URL once after noncached %s",
+                    async (state) => {
+                        const { instance } = await prepare();
+                        // Observe route replay at the public boundary; normal room routing is covered separately.
+                        const replay = vi.spyOn(instance, "showScreen").mockImplementation(() => {});
+                        act(() => mockClient.emit(ClientEvent.Sync, SyncState.Prepared, null, { fromCache: true }));
+                        expect(replay).not.toHaveBeenCalled();
+                        vi.mocked(mockClient.getSyncStateData).mockReturnValue({ fromCache: false });
+                        act(() => mockClient.emit(ClientEvent.Sync, state, SyncState.Prepared, { fromCache: false }));
+                        expect(replay).toHaveBeenCalledExactlyOnceWith(docsScreen, params);
+                        act(() => mockClient.emit(ClientEvent.Sync, SyncState.Syncing, state, { fromCache: false }));
+                        expect(replay).toHaveBeenCalledOnce();
+                    },
+                );
+
+                it.each([Action.ViewHomePage, Action.ViewPersonalPage, "logout"])(
+                    "cancels queued Docs on %s",
+                    async (action) => {
+                        const { instance } = await prepare();
+                        const replay = vi.spyOn(instance, "showScreen").mockImplementation(() => {});
+                        act(() => defaultDispatcher.dispatch({ action }, true));
+                        vi.mocked(mockClient.getSyncStateData).mockReturnValue({ fromCache: false });
+                        act(() =>
+                            mockClient.emit(ClientEvent.Sync, SyncState.Syncing, SyncState.Prepared, {
+                                fromCache: false,
+                            }),
+                        );
+                        expect(replay).not.toHaveBeenCalled();
+                    },
+                );
+
+                it("cancels queued Docs when another URL is selected", async () => {
+                    const { instance } = await prepare();
+                    act(() => instance.showScreen("home"));
+                    const replay = vi.spyOn(instance, "showScreen").mockImplementation(() => {});
+                    vi.mocked(mockClient.getSyncStateData).mockReturnValue({ fromCache: false });
+                    act(() =>
+                        mockClient.emit(ClientEvent.Sync, SyncState.Syncing, SyncState.Prepared, { fromCache: false }),
+                    );
+                    expect(replay).not.toHaveBeenCalled();
+                });
+
+                it("cancels queued Docs when MatrixChat unmounts", async () => {
+                    const { view, instance } = await prepare();
+                    const replay = vi.spyOn(instance, "showScreen").mockImplementation(() => {});
+                    view.unmount();
+                    vi.mocked(mockClient.getSyncStateData).mockReturnValue({ fromCache: false });
+                    act(() =>
+                        mockClient.emit(ClientEvent.Sync, SyncState.Syncing, SyncState.Prepared, { fromCache: false }),
+                    );
+                    expect(replay).not.toHaveBeenCalled();
+                });
+            });
+
             it("opens the Personal deep link without a selected room and returns to Home", async () => {
                 await getComponentAndWaitForReady({
                     config: { ...defaultProps.config, matcha_thread_tabs: true },

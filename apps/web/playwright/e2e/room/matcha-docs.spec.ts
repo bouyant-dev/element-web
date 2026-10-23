@@ -27,7 +27,14 @@ const legacyMarkdown = "# Legacy private plan\n\nOnly Alice's original chat can 
 async function dismissPrompts(page: Page): Promise<void> {
     for (const name of ["Later", "Dismiss"]) {
         const action = page.getByRole("button", { name, exact: true });
-        if (await action.isVisible()) await action.click();
+        if (await action.isVisible()) {
+            try {
+                await action.click({ timeout: 2_000 });
+            } catch (error) {
+                // Startup prompts may disappear by themselves when live sync finishes.
+                if (await action.isVisible()) throw error;
+            }
+        }
     }
     const introduction = page.getByRole("dialog").filter({ hasText: "Introducing Sections" });
     if (await introduction.isVisible()) {
