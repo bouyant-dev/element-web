@@ -215,6 +215,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
 
     private firstSyncComplete = false;
     private firstSyncPromise: PromiseWithResolvers<void>;
+    private pendingSpaceDocsScreen?: { screen: string; params: Record<string, unknown> };
 
     private screenAfterLogin?: IScreen;
 
@@ -513,6 +514,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
     }
 
     public componentWillUnmount(): void {
+        this.pendingSpaceDocsScreen = undefined;
         Lifecycle.stopMatrixClient();
         dis.unregister(this.dispatcherRef);
         this.themeWatcher?.off(ThemeWatcherEvent.Change, setTheme);
@@ -632,6 +634,17 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
     }
 
     private onAction = (payload: ActionPayload): void => {
+        if (
+            payload.action === Action.ViewRoom ||
+            payload.action === Action.ViewHomePage ||
+            payload.action === Action.ViewPersonalPage ||
+            payload.action === Action.ViewRoomDirectory ||
+            payload.action === "view_user_info" ||
+            payload.action === "logout" ||
+            payload.action === Action.OnLoggedOut
+        ) {
+            this.pendingSpaceDocsScreen = undefined;
+        }
         // once the session lock has been stolen, don't try to do anything.
         if (this.state.view === Views.LOCK_STOLEN) {
             logger.warn(`MatrixChat: ignoring action ${payload.action} as session lock has been stolen`);
@@ -1645,6 +1658,15 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         });
 
         cli.on(ClientEvent.Sync, (state: SyncState, prevState: SyncState | null, data?: SyncStateData) => {
+            if (
+                this.pendingSpaceDocsScreen &&
+                !data?.fromCache &&
+                (state === SyncState.Prepared || state === SyncState.Syncing)
+            ) {
+                const { screen, params } = this.pendingSpaceDocsScreen;
+                this.pendingSpaceDocsScreen = undefined;
+                this.showScreen(screen, params);
+            }
             if (state === SyncState.Error || state === SyncState.Reconnecting) {
                 this.setState({ syncError: data?.error ?? null });
             } else if (this.state.syncError) {
@@ -1858,9 +1880,20 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
     }
 
     public showScreen(screen: string, params?: Record<string, any>): void {
+        this.pendingSpaceDocsScreen = undefined;
         logger.debug(`showScreen ${screen}`);
 
         const cli = MatrixClientPeg.get();
+        // Cached sync can omit a joined Space; opening it early creates an unrelated room preview.
+        if (
+            screen.startsWith("room/") &&
+            params?.view === "docs" &&
+            SdkConfig.get("matcha_thread_tabs") &&
+            cli?.getSyncStateData()?.fromCache
+        ) {
+            this.pendingSpaceDocsScreen = { screen, params };
+            return;
+        }
         const isLoggedOutOrGuest = !cli || cli.isGuest();
         if (!isLoggedOutOrGuest && AUTH_SCREENS.includes(screen)) {
             // user is logged in and landing on an auth page which will uproot their session, redirect them home instead

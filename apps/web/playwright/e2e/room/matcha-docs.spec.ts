@@ -370,6 +370,11 @@ test.describe("Matcha shared Space Docs", () => {
             await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${aliceChatId}`);
             await expect(chatsToggle).toHaveAttribute("aria-current", "page");
             await expect(docsToggle).not.toHaveAttribute("aria-current", "page");
+            await alicePage.goBack();
+            await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs`);
+            await expect(docsToggle).toHaveAttribute("aria-current", "page");
+            await alicePage.goForward();
+            await expect(chatsToggle).toHaveAttribute("aria-current", "page");
             await docsToggle.click();
             await firstChat.click();
             await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${aliceChatId}`);
