@@ -47,6 +47,7 @@ import {
     type ThreadMetadata,
 } from "../../utils/matcha/threads";
 import { scheduleRoomReminder } from "../../utils/matcha/reminders";
+import { decryptMatrixEventWithRetry } from "../../utils/matcha/encryption";
 
 /** Room state contains only this board's root event identifier, never card content. */
 export const KANBAN_STATE_EVENT = "com.matchahoneylatte.kanban";
@@ -313,8 +314,12 @@ export class KanbanBoardViewModel
             );
             for (const raw of result.chunk) {
                 if (this.isDisposed || room.getMyMembership() !== "join") return;
-                const event = this.props.client.getEventMapper()({ ...raw, room_id: room.roomId });
-                await this.props.client.decryptEventIfNeeded(event);
+                const wire = { ...raw, room_id: room.roomId };
+                const event = await decryptMatrixEventWithRetry(
+                    this.props.client,
+                    this.props.client.getEventMapper()(wire),
+                    wire,
+                );
                 if (event.isDecryptionFailure()) {
                     board.unreadable = true;
                     continue;

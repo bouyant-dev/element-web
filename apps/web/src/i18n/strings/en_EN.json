@@ -1738,7 +1738,11 @@
         "create_title": "New thread",
         "invalid_name": "Enter a thread name between 1 and 100 characters.",
         "load_error": "Could not load threads. Try again.",
-        "metadata_error": "Some thread details could not be read or decrypted. They cannot be managed until you restore your keys or retry.",
+        "metadata_access_error": "Your account cannot read some thread details. Check your access to this chat, then retry.",
+        "metadata_decryption_error": "Some thread details could not be decrypted. Retry, or check message recovery in your encryption settings.",
+        "metadata_history_error": "Some thread history could not be fully loaded. Management is disabled for the affected threads; retry to check again.",
+        "metadata_keys_error": "This device is missing encryption keys for some older threads. Restore available keys from another device or backup, then retry. Other threads remain usable.",
+        "metadata_network_error": "Thread details could not be loaded because of a connection error. Retry when connected.",
         "name_label": "Thread name",
         "rename_error": "Could not rename this thread. Check your message permissions and connection, then try again.",
         "rename_title": "Rename thread"

@@ -40,7 +40,9 @@ import {
     resolveThreadRoot,
     updateThreadMetadata,
     validThreadName,
+    threadMetadataErrorKind,
     type ThreadMetadata,
+    type ThreadMetadataErrorKind,
 } from "../../utils/matcha/threads";
 
 export { THREAD_ARCHIVE_EVENT } from "../../utils/matcha/threads";
@@ -62,7 +64,8 @@ export class RoomThreadTabsViewModel
 {
     private selectionRequest = 0;
     private metadata = new Map<string, ThreadMetadata>();
-    private metadataErrors = new Set<string>();
+    private metadataErrors = new Map<string, ThreadMetadataErrorKind>();
+    private metadataWarning?: string;
     private dirty = new Set<string>();
     private revisions = new Map<string, number>();
     private loadingMetadata = false;
@@ -86,8 +89,14 @@ export class RoomThreadTabsViewModel
             if (args[0] instanceof MatrixEvent) this.onEvent(args[0]);
         });
         this.disposables.trackListener(props.client, MatrixEventEvent.Decrypted, (...args) => {
-            // History decryption is part of loading; live encrypted relations arrive via Timeline.
-            if (!this.loadingMetadata && args[0] instanceof MatrixEvent) this.onEvent(args[0]);
+            const event = args[0];
+            if (!(event instanceof MatrixEvent) || args[1] || event.isDecryptionFailure()) return;
+            const id = this.eventRootId(event);
+            // Ignore our successful history reads, but keep a keys-arrived recovery for an earlier failed batch.
+            if (!this.loadingMetadata || (id && this.metadataErrors.has(id))) {
+                this.onEvent(event);
+                if (this.loadingMetadata) this.loadAgain = true;
+            }
         });
         this.disposables.trackListener(props.client, RoomStateEvent.Events, this.refresh);
         this.disposables.trackListener(props.rightPanelStore, UPDATE_EVENT, this.onThreadsChanged);
@@ -122,6 +131,11 @@ export class RoomThreadTabsViewModel
         const { room, client } = this.props;
         const canManage = canManageThreads(client, room);
         const roots = [...this.roots()].sort((a, b) => (b[1]?.getTs() ?? 0) - (a[1]?.getTs() ?? 0));
+        const ids = new Set(roots.map(([id]) => id));
+        for (const map of [this.metadata, this.metadataErrors, this.revisions])
+            for (const id of map.keys()) if (!ids.has(id)) map.delete(id);
+        for (const id of this.dirty) if (!ids.has(id)) this.dirty.delete(id);
+        this.publishMetadataWarning();
         this.snapshot.merge({
             selectedId: this.selectedRoot()?.getId(),
             canCreate: canManage && room.maySendMessage(),
@@ -150,13 +164,36 @@ export class RoomThreadTabsViewModel
         this.scheduleMetadata();
     };
 
+    private publishMetadataWarning = (): void => {
+        const messages = [...new Set(this.metadataErrors.values())].map((kind) => {
+            switch (kind) {
+                case "keys":
+                    return _t("matcha_threads|metadata_keys_error");
+                case "decryption":
+                    return _t("matcha_threads|metadata_decryption_error");
+                case "history":
+                    return _t("matcha_threads|metadata_history_error");
+                case "access":
+                    return _t("matcha_threads|metadata_access_error");
+                case "network":
+                    return _t("matcha_threads|metadata_network_error");
+            }
+        });
+        const warning = messages.length ? messages.join(" ") : undefined;
+        if (warning || this.getSnapshot().error === this.metadataWarning) this.snapshot.merge({ error: warning });
+        this.metadataWarning = warning;
+    };
+
+    private eventRootId = (event: MatrixEvent): string | undefined => {
+        const relation = event.getRelation();
+        return event.getType() === THREAD_METADATA_EVENT || relation?.rel_type === RelationType.Reference
+            ? relation?.event_id
+            : event.getId();
+    };
+
     private onEvent = (event: MatrixEvent): void => {
         if (event.getRoomId() !== this.props.room.roomId) return;
-        const relation = event.getRelation();
-        const id =
-            event.getType() === THREAD_METADATA_EVENT || relation?.rel_type === RelationType.Reference
-                ? relation?.event_id
-                : event.getId();
+        const id = this.eventRootId(event);
         if (!id || !this.roots().has(id)) return;
         this.revisions.set(id, (this.revisions.get(id) ?? 0) + 1);
         this.dirty.add(id);
@@ -197,7 +234,7 @@ export class RoomThreadTabsViewModel
                         } catch (error) {
                             logger.warn("Unable to read thread metadata", error);
                             if (!this.isDisposed && revision === (this.revisions.get(id) ?? 0)) {
-                                this.metadataErrors.add(id);
+                                this.metadataErrors.set(id, threadMetadataErrorKind(error));
                                 this.dirty.delete(id);
                             }
                         }
@@ -207,9 +244,6 @@ export class RoomThreadTabsViewModel
         } finally {
             this.loadingMetadata = false;
             if (!this.isDisposed) {
-                if (this.metadataErrors.size) this.snapshot.merge({ error: _t("matcha_threads|metadata_error") });
-                else if (this.getSnapshot().error === _t("matcha_threads|metadata_error"))
-                    this.snapshot.merge({ error: undefined });
                 this.refresh();
                 if (this.loadAgain) {
                     this.loadAgain = false;

@@ -14,10 +14,12 @@ import {
     RelationType,
     EventType,
     type IEvent,
-    type MatrixClient,
+    MatrixClient,
     type Thread,
 } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
+import { mkDecryptionFailureMatrixEvent } from "matrix-js-sdk/src/testing";
+import { DecryptionFailureCode } from "matrix-js-sdk/src/crypto-api";
 import { stubClient } from "test-utils";
 
 import { MatrixClientPeg } from "../../MatrixClientPeg";
@@ -29,6 +31,8 @@ import {
     readThreadMetadata,
     resolveThreadRoot,
     updateThreadMetadata,
+    ThreadMetadataReadError,
+    threadMetadataErrorKind,
 } from "./threads";
 
 const roomId = "!room:server";
@@ -159,6 +163,82 @@ describe("shared thread metadata", () => {
             ],
         });
         expect(await readThreadMetadata(client, room, root)).toEqual({ name: "Original name", archived: false });
+    });
+
+    it("retries actual SDK cached failed roots and metadata using original ciphertext after keys become available", async () => {
+        const cachedRoot = await mkDecryptionFailureMatrixEvent({
+            roomId,
+            sender: "@alice:server",
+            eventId: "$root",
+            code: DecryptionFailureCode.HISTORICAL_MESSAGE_WORKING_BACKUP,
+            msg: "Missing historical key",
+        });
+        const cachedMetadata = await mkDecryptionFailureMatrixEvent({
+            roomId,
+            sender: "@alice:server",
+            eventId: "$metadata",
+            code: DecryptionFailureCode.HISTORICAL_MESSAGE_WORKING_BACKUP,
+            msg: "Missing historical key",
+        });
+        cachedRoot.event.content = { ...cachedRoot.getWireContent(), ciphertext: "root-ciphertext" };
+        cachedMetadata.event.content = {
+            ...cachedMetadata.getWireContent(),
+            "m.relates_to": { rel_type: RelationType.Reference, event_id: "$root" },
+        };
+        const rawMetadata = {
+            ...cachedMetadata.event,
+            content: { ...cachedMetadata.getWireContent(), ciphertext: "fresh-metadata-ciphertext" },
+        };
+        const sdk = new MatrixClient({ baseUrl: "https://server", userId: "@alice:server" });
+        let keysAvailable = false;
+        const decrypt = vi.fn(async (event: MatrixEvent) => {
+            if (!keysAvailable) throw new Error("Key remains unavailable");
+            return {
+                clearEvent:
+                    event.getId() === "$root"
+                        ? { type: EventType.RoomMessage, content: { msgtype: "m.text", body: "Original title" } }
+                        : {
+                              type: THREAD_METADATA_EVENT,
+                              content: revision("$metadata", { name: "Recovered", archived: true }).content,
+                          },
+            };
+        });
+        // Inject only the backend in this SDK lifecycle test; application code never accesses it.
+        Reflect.set(sdk, "cryptoBackend", { decryptEvent: decrypt });
+        vi.spyOn(sdk, "getRoom").mockReturnValue(room);
+        vi.mocked(room.findEventById).mockImplementation((id) => (id === "$root" ? cachedRoot : cachedMetadata));
+        vi.spyOn(sdk, "fetchRelations").mockResolvedValue({ chunk: [rawMetadata as IEvent] });
+        expect(sdk.getEventMapper()({ ...rawMetadata, room_id: roomId })).toBe(cachedMetadata);
+        await sdk.decryptEventIfNeeded(cachedRoot);
+        expect(decrypt).not.toHaveBeenCalled();
+        expect(cachedRoot.shouldAttemptDecryption()).toBe(false);
+
+        await expect(readThreadMetadata(sdk, room, cachedRoot)).rejects.toMatchObject({ kind: "decryption" });
+        expect(sdk.fetchRelations).not.toHaveBeenCalled();
+        expect(decrypt).toHaveBeenCalledTimes(1);
+        vi.spyOn(room, "getThread").mockReturnValue({ id: "$root", rootEvent: cachedRoot } as Thread);
+        expect((await resolveThreadRoot(sdk, room, "$root")).isDecryptionFailure()).toBe(true);
+        expect(decrypt).toHaveBeenCalledTimes(2);
+        keysAvailable = true;
+
+        expect(await readThreadMetadata(sdk, room, cachedRoot)).toEqual({
+            name: "Recovered",
+            archived: true,
+            archiveExplicit: true,
+        });
+        expect(decrypt).toHaveBeenCalledTimes(4);
+        expect(decrypt.mock.calls[3][0].getWireContent().ciphertext).toBe("fresh-metadata-ciphertext");
+        expect(cachedRoot.isDecryptionFailure()).toBe(true);
+        expect(cachedMetadata.isDecryptionFailure()).toBe(true);
+    });
+
+    it("keeps missing keys, failed decryption, history limits, access and network errors distinct", () => {
+        expect(threadMetadataErrorKind(new ThreadMetadataReadError("keys", "Unavailable"))).toBe("keys");
+        expect(threadMetadataErrorKind(new ThreadMetadataReadError("decryption", "Untrusted"))).toBe("decryption");
+        expect(threadMetadataErrorKind(new ThreadMetadataReadError("history", "Incomplete"))).toBe("history");
+        expect(threadMetadataErrorKind({ errcode: "M_FORBIDDEN" })).toBe("access");
+        expect(threadMetadataErrorKind({ httpStatus: 404 })).toBe("access");
+        expect(threadMetadataErrorKind(new Error("Offline"))).toBe("network");
     });
 
     it("validates actual same-room roots and rejects ordinary unthreaded messages", async () => {

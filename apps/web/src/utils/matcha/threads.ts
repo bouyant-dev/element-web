@@ -13,7 +13,11 @@ import {
     RelationType,
     type MatrixClient,
     type Room,
+    type IEvent,
 } from "matrix-js-sdk/src/matrix";
+import { DecryptionFailureCode } from "matrix-js-sdk/src/crypto-api";
+
+import { decryptMatrixEventWithRetry } from "./encryption";
 
 /** Legacy state events remain readable; new revisions use encrypted timeline events. */
 export const THREAD_ARCHIVE_EVENT = "com.matchahoneylatte.thread_archive";
@@ -36,6 +40,65 @@ export interface ThreadMetadata {
     archiveExplicit?: boolean;
 }
 
+/** Distinguishes missing keys from a failed request or incomplete/inaccessible history. */
+export type ThreadMetadataErrorKind = "keys" | "decryption" | "network" | "history" | "access";
+
+/** A thread remains read-only when its metadata cannot be established. */
+export class ThreadMetadataReadError extends Error {
+    public constructor(
+        public readonly kind: ThreadMetadataErrorKind,
+        message: string,
+    ) {
+        super(message);
+    }
+}
+
+/** Classify failures without treating every homeserver error as missing encryption keys. */
+export function threadMetadataErrorKind(error: unknown): ThreadMetadataErrorKind {
+    if (error instanceof ThreadMetadataReadError) return error.kind;
+    if (typeof error === "object" && error !== null) {
+        if (
+            "errcode" in error &&
+            ["M_FORBIDDEN", "M_NOT_FOUND", "M_UNKNOWN_TOKEN", "M_UNAUTHORIZED"].includes(String(error.errcode))
+        )
+            return "access";
+        if ("httpStatus" in error && [401, 403, 404].includes(Number(error.httpStatus))) return "access";
+    }
+    return "network";
+}
+
+const missingKeyReasons = new Set([
+    DecryptionFailureCode.MEGOLM_UNKNOWN_INBOUND_SESSION_ID,
+    DecryptionFailureCode.MEGOLM_KEY_WITHHELD,
+    DecryptionFailureCode.MEGOLM_KEY_WITHHELD_FOR_UNVERIFIED_DEVICE,
+    DecryptionFailureCode.OLM_UNKNOWN_MESSAGE_INDEX,
+    DecryptionFailureCode.HISTORICAL_MESSAGE_NO_KEY_BACKUP,
+    DecryptionFailureCode.HISTORICAL_MESSAGE_BACKUP_UNCONFIGURED,
+    DecryptionFailureCode.HISTORICAL_MESSAGE_WORKING_BACKUP,
+    DecryptionFailureCode.HISTORICAL_MESSAGE_USER_NOT_JOINED,
+]);
+
+async function decryptThreadEvent(
+    client: MatrixClient,
+    event: MatrixEvent,
+    raw?: Partial<IEvent>,
+    allowUnreadable = false,
+): Promise<MatrixEvent> {
+    event = await decryptMatrixEventWithRetry(client, event, raw);
+    // Opening a native thread may still reveal readable replies even when the original message lacks keys.
+    if (allowUnreadable) return event;
+    if (event.isDecryptionFailure()) {
+        const kind =
+            event.decryptionFailureReason && missingKeyReasons.has(event.decryptionFailureReason)
+                ? "keys"
+                : "decryption";
+        throw new ThreadMetadataReadError(kind, "Thread details could not be decrypted");
+    }
+    if (event.isEncrypted() && !event.getClearContent() && !event.isRedacted())
+        throw new ThreadMetadataReadError("decryption", "Thread encryption is not ready");
+    return event;
+}
+
 /** Normal joined members can manage metadata when their room permits these events. */
 export function canManageThreads(client: MatrixClient, room: Room): boolean {
     return (
@@ -54,21 +117,23 @@ export function validThreadName(name: unknown): name is string {
 
 /** Resolve only same-room native thread roots, including server threads not locally loaded. */
 export async function resolveThreadRoot(client: MatrixClient, room: Room, id: string): Promise<MatrixEvent> {
-    if (!id.startsWith("$") || room.getMyMembership() !== "join") throw new Error("Thread unavailable");
+    if (!id.startsWith("$") || room.getMyMembership() !== "join")
+        throw new ThreadMetadataReadError("access", "Thread unavailable");
     let root = room.getThread(id)?.rootEvent ?? room.findEventById(id);
     if (!root) {
         const raw = await client.fetchRoomEvent(room.roomId, id);
-        if (raw.room_id && raw.room_id !== room.roomId) throw new Error("Thread belongs to another room");
+        if (raw.room_id && raw.room_id !== room.roomId)
+            throw new ThreadMetadataReadError("access", "Thread belongs to another room");
         root = client.getEventMapper()({ ...raw, room_id: room.roomId });
     }
-    await client.decryptEventIfNeeded(root);
+    root = await decryptThreadEvent(client, root, undefined, true);
     if (
         root.getRoomId() !== room.roomId ||
         root.getId() !== id ||
         root.isState() ||
         (root.threadRootId && root.threadRootId !== id)
     )
-        throw new Error("Not a thread root");
+        throw new ThreadMetadataReadError("access", "Not a thread root");
     if (room.getThread(id) || root.isThreadRoot) return root;
     const replies = await client.fetchRelations(room.roomId, id, RelationType.Thread, null, {
         dir: Direction.Backward,
@@ -81,16 +146,16 @@ export async function resolveThreadRoot(client: MatrixClient, room: Room, id: st
                 reply.content?.["m.relates_to"]?.rel_type === RelationType.Thread,
         )
     )
-        throw new Error("Not a thread root");
+        throw new ThreadMetadataReadError("access", "Not a thread root");
     return root;
 }
 
 /** Read bounded, server-ordered revisions; refuse to silently guess when history or keys are missing. */
 export async function readThreadMetadata(client: MatrixClient, room: Room, root: MatrixEvent): Promise<ThreadMetadata> {
     const id = root.getId();
-    if (!id || root.getRoomId() !== room.roomId) throw new Error("Thread belongs to another room");
-    await client.decryptEventIfNeeded(root);
-    if (root.isDecryptionFailure()) throw new Error("Thread name could not be decrypted");
+    if (!id || root.getRoomId() !== room.roomId)
+        throw new ThreadMetadataReadError("access", "Thread belongs to another room");
+    root = await decryptThreadEvent(client, root);
     const body = root.getContent().body;
     const fallback =
         typeof body === "string" && body.trim() ? body.replace(/\s+/g, " ").slice(0, THREAD_NAME_LIMIT) : id;
@@ -98,7 +163,7 @@ export async function readThreadMetadata(client: MatrixClient, room: Room, root:
     let archived: boolean | undefined;
     let from: string | undefined;
     for (let page = 0; page < 3; page++) {
-        if (room.getMyMembership() !== "join") throw new Error("Thread unavailable");
+        if (room.getMyMembership() !== "join") throw new ThreadMetadataReadError("access", "Thread unavailable");
         const response = await client.fetchRelations(room.roomId, id, RelationType.Reference, null, {
             dir: Direction.Backward,
             limit: 100,
@@ -106,9 +171,8 @@ export async function readThreadMetadata(client: MatrixClient, room: Room, root:
         });
         for (const raw of response.chunk) {
             if (raw.room_id && raw.room_id !== room.roomId) continue;
-            const event = client.getEventMapper()({ ...raw, room_id: room.roomId });
-            await client.decryptEventIfNeeded(event);
-            if (event.isDecryptionFailure()) throw new Error("Thread metadata could not be decrypted");
+            const wire = { ...raw, room_id: room.roomId };
+            const event = await decryptThreadEvent(client, client.getEventMapper()(wire), wire);
             const content = event.getContent();
             if (
                 event.isRedacted() ||
@@ -130,10 +194,14 @@ export async function readThreadMetadata(client: MatrixClient, room: Room, root:
                 ...(archived !== undefined || typeof legacy === "boolean" ? { archiveExplicit: true } : {}),
             };
         }
-        if (response.next_batch === from) throw new Error("Thread metadata pagination did not advance");
+        if (response.next_batch === from)
+            throw new ThreadMetadataReadError("history", "Thread metadata pagination did not advance");
         from = response.next_batch;
     }
-    throw new Error("Thread metadata history is incomplete; refresh before managing this thread");
+    throw new ThreadMetadataReadError(
+        "history",
+        "Thread metadata history is incomplete; refresh before managing this thread",
+    );
 }
 
 /** Persist only the requested fields; Matrix transparently encrypts metadata in encrypted rooms. */

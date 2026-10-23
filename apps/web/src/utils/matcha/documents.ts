@@ -23,8 +23,11 @@ import {
     type MatrixEvent,
     type Room,
     type RoomMember,
+    type IEvent,
 } from "matrix-js-sdk/src/matrix";
 import { logger } from "matrix-js-sdk/src/logger";
+
+import { decryptMatrixEventWithRetry } from "./encryption";
 
 /** Encrypted timeline events carrying one chat's shared Markdown document. */
 export const ROOM_DOC_EVENT = "com.matchahoneylatte.docs.update";
@@ -293,10 +296,10 @@ export class RoomDocumentSession extends EventTarget {
         this.doc.store.pendingDs !== null ||
         [...this.incoming.values()].some((packet) => packet.committed && packet.parts.size !== packet.count);
 
-    private ingest = async (event: MatrixEvent): Promise<void> => {
+    private ingest = async (event: MatrixEvent, raw?: Partial<IEvent>): Promise<void> => {
         const id = event.getId();
         if (this.disposed || (id && this.seenEvents.has(id))) return;
-        await this.client.decryptEventIfNeeded(event);
+        event = await decryptMatrixEventWithRetry(this.client, event, raw);
         if (this.disposed) return;
         if (event.isDecryptionFailure()) throw new DocumentError("decrypt_error");
         const frame = readFrame(event, this.room.roomId, this.anchor!);
@@ -391,7 +394,8 @@ export class RoomDocumentSession extends EventTarget {
                 );
                 for (const raw of response.chunk) {
                     if (raw.room_id && raw.room_id !== this.room.roomId) continue;
-                    await this.ingest(this.client.getEventMapper()({ ...raw, room_id: this.room.roomId }));
+                    const wire = { ...raw, room_id: this.room.roomId };
+                    await this.ingest(this.client.getEventMapper()(wire), wire);
                 }
                 from = response.next_batch;
                 if (from && tokens.has(from)) throw new DocumentError("load_error");

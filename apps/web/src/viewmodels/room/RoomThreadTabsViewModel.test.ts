@@ -26,7 +26,9 @@ import { stubClient } from "test-utils";
 import EventEmitter from "events";
 
 import { RoomThreadTabsViewModel } from "./RoomThreadTabsViewModel";
-import { THREAD_ARCHIVE_EVENT, THREAD_METADATA_EVENT } from "../../utils/matcha/threads";
+import { THREAD_ARCHIVE_EVENT, THREAD_METADATA_EVENT, ThreadMetadataReadError } from "../../utils/matcha/threads";
+import * as threadHelpers from "../../utils/matcha/threads";
+import { _t } from "../../languageHandler";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import Modal from "../../Modal";
 import type RightPanelStore from "../../stores/right-panel/RightPanelStore";
@@ -234,8 +236,52 @@ describe("RoomThreadTabsViewModel", () => {
             content: { "version": 1, "name": "New", "m.relates_to": { rel_type: "m.reference", event_id: "$root" } },
         });
         client.emit(MatrixEventEvent.Decrypted, revision);
-        await vi.waitFor(() => expect(vm.getSnapshot().error).toContain("Some thread details"));
+        await vi.waitFor(() => expect(vm.getSnapshot().error).toBe(_t("matcha_threads|metadata_network_error")));
         expect(vm.getSnapshot().threads[0].canManage).toBe(false);
+    });
+
+    it("recovers a failed thread when its keys arrive during a different metadata batch", async () => {
+        const read = vi
+            .spyOn(threadHelpers, "readThreadMetadata")
+            .mockRejectedValueOnce(new ThreadMetadataReadError("keys", "Missing keys"));
+        await vm.retry();
+        expect(vm.getSnapshot().error).toBe(_t("matcha_threads|metadata_keys_error"));
+        expect(vm.getSnapshot().threads[0].canManage).toBe(false);
+        const otherRoot = new MatrixEvent({ ...root.event, event_id: "$other" });
+        threads.push({ id: "$other", rootEvent: otherRoot } as Thread);
+        const pending = Promise.withResolvers<threadHelpers.ThreadMetadata>();
+        read.mockImplementation(async (_client, _room, event) =>
+            event.getId() === "$other" ? pending.promise : { name: "Recovered", archived: false },
+        );
+        room.emit(ThreadEvent.New, threads[1], false);
+        await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+        client.emit(MatrixEventEvent.Decrypted, root);
+        pending.resolve({ name: "Other", archived: false });
+        await vi.waitFor(() =>
+            expect(vm.getSnapshot().threads.find((thread) => thread.id === "$root")?.canManage).toBe(true),
+        );
+        expect(vm.getSnapshot().error).toBeUndefined();
+        expect(read).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not retry failed decryption notifications in a loop and prunes vanished thread errors", async () => {
+        vi.spyOn(threadHelpers, "readThreadMetadata").mockRejectedValue(
+            new ThreadMetadataReadError("keys", "Missing keys"),
+        );
+        await vm.retry();
+        const read = vi.mocked(threadHelpers.readThreadMetadata);
+        read.mockClear();
+        vi.useFakeTimers();
+        client.emit(MatrixEventEvent.Decrypted, root, new Error("Still missing keys"));
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(read).not.toHaveBeenCalled();
+        expect(vm.getSnapshot().error).toBe(_t("matcha_threads|metadata_keys_error"));
+        panel.isOpenForRoom.mockReturnValue(false);
+        const removed = threads[0];
+        threads = [];
+        room.emit(ThreadEvent.Delete, removed);
+        expect(vm.getSnapshot().threads).toEqual([]);
+        expect(vm.getSnapshot().error).toBeUndefined();
     });
 
     it("does not refetch when reading history emits decryption callbacks", async () => {
