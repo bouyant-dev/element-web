@@ -183,12 +183,18 @@ test.describe("Matcha room thread tabs", () => {
         await expect(personal).toBeVisible();
         await personal.click();
         await expect(page).toHaveURL((url) => url.hash === "#/personal");
-        await expect(spaces.getByRole("treeitem").filter({ has: personal })).toHaveAttribute("aria-selected", "true");
+        await expect(spaces.getByRole("treeitem", { name: "Personal", exact: true })).toHaveAttribute(
+            "aria-selected",
+            "true",
+        );
         await expect(page.getByRole("article", { name: "Ship beta navigation" })).toBeVisible();
         await expect(page.getByRole("article", { name: "Check deployments" })).toBeVisible();
         await page.reload();
         await expect(page).toHaveURL((url) => url.hash === "#/personal");
-        await expect(spaces.getByRole("treeitem").filter({ has: personal })).toHaveAttribute("aria-selected", "true");
+        await expect(spaces.getByRole("treeitem", { name: "Personal", exact: true })).toHaveAttribute(
+            "aria-selected",
+            "true",
+        );
         await expect(page.getByRole("article", { name: "Ship beta navigation" })).toBeVisible();
         await expect(page.getByRole("article", { name: "Check deployments" })).toBeVisible();
         await capturePreview(page, testInfo, "all-boards-preview.png");
@@ -208,7 +214,10 @@ test.describe("Matcha room thread tabs", () => {
         await personal.click();
         await spaces.getByRole("button", { name: "Home", exact: true }).click();
         await expect(page).toHaveURL((url) => url.hash === "#/home");
-        await expect(spaces.getByRole("treeitem").filter({ has: personal })).toHaveAttribute("aria-selected", "false");
+        await expect(spaces.getByRole("treeitem", { name: "Personal", exact: true })).toHaveAttribute(
+            "aria-selected",
+            "false",
+        );
         await expect(page.getByRole("article", { name: "Ship beta navigation" })).toHaveCount(0);
     });
     test("manages named encrypted threads as a regular member and links them to cards", async ({
