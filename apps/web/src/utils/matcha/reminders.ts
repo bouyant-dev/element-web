@@ -9,10 +9,30 @@ import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import Modal from "../../Modal";
 import { _t } from "../../languageHandler";
-import TextInputDialog from "../../components/views/dialogs/TextInputDialog";
+import { RoomReminderDialog } from "../../components/views/dialogs/RoomReminderDialog";
+import { isValidReminderDraft } from "../../viewmodels/room/RoomReminderViewModel";
 import QuestionDialog from "../../components/views/dialogs/QuestionDialog";
 import InfoDialog from "../../components/views/dialogs/InfoDialog";
 import ErrorDialog from "../../components/views/dialogs/ErrorDialog";
+import { resolveThreadRoot } from "./threads";
+import { RoomPermalinkCreator } from "../permalinks/Permalinks";
+
+/** Card or room context used to prefill the scheduling controls. */
+export interface RoomReminderOptions {
+    message?: string;
+    at?: number;
+    threadId?: string;
+}
+
+/** Matrix accepted the command; only the bot's later reply confirms the durable schedule. */
+export interface RoomReminderRequest {
+    status: "requested";
+    eventId: string;
+    /** Estimated for a relative delay; the bot's acknowledgement supplies the server-based deadline. */
+    at: number;
+    message: string;
+    threadId?: string;
+}
 
 /** Validate a bounded relative reminder without interpreting ambiguous calendar dates. */
 export function isValidReminder(value: string): boolean {
@@ -29,9 +49,14 @@ export function isValidReminder(value: string): boolean {
 }
 
 /** Ask for a reminder and send it through the existing encrypted Matrix message path. */
-export async function scheduleRoomReminder(client: MatrixClient, room: Room, botUserId: string): Promise<void> {
+export async function scheduleRoomReminder(
+    client: MatrixClient,
+    room: Room,
+    botUserId: string,
+    initial: RoomReminderOptions = {},
+): Promise<RoomReminderRequest | undefined> {
     try {
-        if (!room.maySendMessage()) throw new Error("Cannot send to this room");
+        if (room.getMyMembership() !== "join" || !room.maySendMessage()) throw new Error("Cannot send to this room");
         const membership = room.getMember(botUserId)?.membership;
         if (membership !== "join") {
             if (membership !== "invite") {
@@ -51,26 +76,42 @@ export async function scheduleRoomReminder(client: MatrixClient, room: Room, bot
             return;
         }
 
-        const [confirmed, input] = await Modal.createDialog(TextInputDialog, {
-            title: _t("matcha_reminders|title"),
-            description: _t("matcha_reminders|description"),
-            placeholder: _t("matcha_reminders|placeholder"),
-            usePlaceholderAsHint: true,
-            button: _t("matcha_reminders|schedule"),
-            validator: async ({ value }) => ({
-                valid: isValidReminder(value ?? ""),
-                feedback: isValidReminder(value ?? "") ? undefined : _t("matcha_reminders|invalid"),
-            }),
+        let message = initial.message ?? "";
+        if (initial.threadId) {
+            await resolveThreadRoot(client, room, initial.threadId);
+            const link = new RoomPermalinkCreator(room).forEvent(initial.threadId);
+            if (!message.includes(link)) message = message ? `${message}\n${link}` : link;
+        }
+        const [confirmed, draft] = await Modal.createDialog(RoomReminderDialog, {
+            initial: { message, at: initial.at },
         }).finished;
-        if (!confirmed || !input || !isValidReminder(input)) return;
-        if (!room.maySendMessage() || room.getMember(botUserId)?.membership !== "join") {
+        if (!confirmed || !draft) return;
+        const now = Date.now();
+        if (!isValidReminderDraft(draft, now)) throw new Error("Invalid reminder time or message");
+        if (
+            room.getMyMembership() !== "join" ||
+            !room.maySendMessage() ||
+            room.getMember(botUserId)?.membership !== "join"
+        ) {
             throw new Error("Room membership changed");
         }
-        await client.sendTextMessage(room.roomId, "!remind " + input.trim());
+        const at = draft.delaySeconds === undefined ? draft.at : now + draft.delaySeconds * 1000;
+        const when = draft.delaySeconds === undefined ? `at ${new Date(at).toISOString()}` : `${draft.delaySeconds}s`;
+        const { event_id: eventId } = await client.sendTextMessage(
+            room.roomId,
+            `!remind ${when} ${draft.message.trim()}`,
+        );
         Modal.createDialog(InfoDialog, {
             title: _t("matcha_reminders|requested_title"),
             description: _t("matcha_reminders|requested_description"),
         });
+        return {
+            status: "requested",
+            eventId,
+            at,
+            message: draft.message.trim(),
+            threadId: initial.threadId,
+        };
     } catch {
         Modal.createDialog(ErrorDialog, {
             title: _t("matcha_reminders|error_title"),

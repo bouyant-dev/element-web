@@ -436,3 +436,58 @@ Please see LICENSE in the repository root for full details.
         transition: none;
     }
 }
+
+.descriptionLabel input {
+    font: inherit;
+    padding: var(--cpd-space-3x);
+    background: var(--cpd-color-bg-canvas-default);
+    color: var(--cpd-color-text-primary);
+    border: 1px solid var(--cpd-color-gray-600);
+    border-radius: var(--cpd-space-2x);
+}
+.descriptionLabel input:focus-visible {
+    outline: 2px solid var(--cpd-color-border-focused);
+    outline-offset: 2px;
+}
+.dueBadge {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    margin-top: var(--cpd-space-3x);
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-medium);
+}
+.dueBadge svg {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+}
+.dueBadge[data-overdue="true"] {
+    color: var(--cpd-color-text-critical-primary);
+}
+.reminderStatus {
+    margin: var(--cpd-space-2x) 0 0;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+}
+.earlierCards {
+    margin-top: var(--cpd-space-3x);
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-xs-regular);
+}
+.earlierCards summary {
+    cursor: pointer;
+    padding-block: var(--cpd-space-2x);
+}
+.earlierCards summary:focus-visible {
+    outline: 2px solid var(--cpd-color-border-focused);
+    outline-offset: 2px;
+}
+.earlierCards > div {
+    border-top: 1px solid var(--cpd-color-gray-400);
+    padding-block: var(--cpd-space-2x);
+}
+.earlierCards p {
+    margin: var(--cpd-space-1x) 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

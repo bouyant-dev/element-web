@@ -8,12 +8,15 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
+import { MatrixEvent, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import { isValidReminder, scheduleRoomReminder } from "./reminders";
 import Modal from "../../Modal";
 import InfoDialog from "../../components/views/dialogs/InfoDialog";
 import ErrorDialog from "../../components/views/dialogs/ErrorDialog";
+import { RoomReminderDialog } from "../../components/views/dialogs/RoomReminderDialog";
+import * as threads from "./threads";
+import { RoomPermalinkCreator } from "../permalinks/Permalinks";
 
 describe("room reminders", () => {
     afterEach(() => vi.restoreAllMocks());
@@ -39,12 +42,13 @@ describe("room reminders", () => {
         return {
             client: {
                 getSafeUserId: () => "@me:server",
-                sendTextMessage: vi.fn(),
+                sendTextMessage: vi.fn().mockResolvedValue({ event_id: "$request" }),
                 invite: vi.fn(),
             } as unknown as MatrixClient,
             room: {
                 roomId: "!room:server",
                 maySendMessage: () => true,
+                getMyMembership: () => "join",
                 canInvite: () => true,
                 getMember: () => ({ membership }),
             } as unknown as Room,
@@ -53,17 +57,27 @@ describe("room reminders", () => {
 
     it("sends a reminder to the selected room only after confirmation", async () => {
         const { client, room } = setup();
+        const draft = { at: Date.now() + 600_000, message: "Check build" };
         const dialog = vi.spyOn(Modal, "createDialog").mockReturnValue({
             close: vi.fn(),
-            finished: Promise.resolve([true, "10m Check build"]),
+            finished: Promise.resolve([true, draft]),
         } as ReturnType<typeof Modal.createDialog>);
-        await scheduleRoomReminder(client, room, "@bot:server");
+        const result = await scheduleRoomReminder(client, room, "@bot:server");
         expect(dialog).toHaveBeenNthCalledWith(
             1,
-            expect.anything(),
-            expect.objectContaining({ usePlaceholderAsHint: true }),
+            RoomReminderDialog,
+            expect.objectContaining({ initial: { message: "", at: undefined } }),
         );
-        expect(client.sendTextMessage).toHaveBeenCalledWith(room.roomId, "!remind 10m Check build");
+        expect(client.sendTextMessage).toHaveBeenCalledWith(
+            room.roomId,
+            `!remind at ${new Date(draft.at).toISOString()} Check build`,
+        );
+        expect(result).toMatchObject({
+            status: "requested",
+            eventId: "$request",
+            at: draft.at,
+            message: "Check build",
+        });
         expect(dialog).toHaveBeenLastCalledWith(InfoDialog, expect.anything());
     });
 
@@ -93,9 +107,10 @@ describe("room reminders", () => {
         const { client, room } = setup();
         vi.spyOn(Modal, "createDialog").mockImplementation(() => {
             vi.spyOn(room, "getMember").mockReturnValue(null);
-            return { close: vi.fn(), finished: Promise.resolve([true, "10m Check build"]) } as ReturnType<
-                typeof Modal.createDialog
-            >;
+            return {
+                close: vi.fn(),
+                finished: Promise.resolve([true, { at: Date.now() + 600_000, message: "Check build" }]),
+            } as ReturnType<typeof Modal.createDialog>;
         });
         await scheduleRoomReminder(client, room, "@bot:server");
         expect(client.sendTextMessage).not.toHaveBeenCalled();
@@ -104,12 +119,70 @@ describe("room reminders", () => {
     it("shows failure rather than claiming a failed send was scheduled", async () => {
         const { client, room } = setup();
         vi.mocked(client.sendTextMessage).mockRejectedValue(new Error("offline"));
-        const dialog = vi
-            .spyOn(Modal, "createDialog")
-            .mockReturnValue({ close: vi.fn(), finished: Promise.resolve([true, "10m Review"]) } as ReturnType<
-                typeof Modal.createDialog
-            >);
-        await scheduleRoomReminder(client, room, "@bot:server");
+        const dialog = vi.spyOn(Modal, "createDialog").mockReturnValue({
+            close: vi.fn(),
+            finished: Promise.resolve([true, { at: Date.now() + 600_000, message: "Review" }]),
+        } as ReturnType<typeof Modal.createDialog>);
+        const result = await scheduleRoomReminder(client, room, "@bot:server");
+        expect(result).toBeUndefined();
         expect(dialog).toHaveBeenLastCalledWith(ErrorDialog, expect.anything());
+    });
+
+    it("prefills a card reminder with a validated same-room thread link", async () => {
+        const { client, room } = setup();
+        const at = Date.now() + 600_000;
+        const root = new MatrixEvent({ room_id: room.roomId, event_id: "$thread" });
+        const resolve = vi.spyOn(threads, "resolveThreadRoot").mockResolvedValue(root);
+        const link = "https://matrix.to/#/!room:server/$thread";
+        vi.spyOn(RoomPermalinkCreator.prototype, "forEvent").mockReturnValue(link);
+        const dialog = vi.spyOn(Modal, "createDialog").mockReturnValue({
+            close: vi.fn(),
+            finished: Promise.resolve([true, { at, message: `Release\n${link}` }]),
+        } as ReturnType<typeof Modal.createDialog>);
+        const result = await scheduleRoomReminder(client, room, "@bot:server", {
+            at,
+            message: "Release",
+            threadId: "$thread",
+        });
+        expect(resolve).toHaveBeenCalledWith(client, room, "$thread");
+        expect(dialog).toHaveBeenNthCalledWith(1, RoomReminderDialog, { initial: { at, message: `Release\n${link}` } });
+        expect(result).toMatchObject({ at, threadId: "$thread", status: "requested" });
+        expect(client.sendTextMessage).toHaveBeenCalledWith(room.roomId, expect.stringContaining(link));
+    });
+
+    it("rejects a foreign thread and a time which expired while the dialog was open", async () => {
+        const { client, room } = setup();
+        vi.spyOn(threads, "resolveThreadRoot").mockRejectedValue(new Error("Different room"));
+        const dialog = vi.spyOn(Modal, "createDialog").mockReturnValue({
+            close: vi.fn(),
+            finished: Promise.resolve([true, { at: Date.now() - 1000, message: "Too late" }]),
+        } as ReturnType<typeof Modal.createDialog>);
+        expect(await scheduleRoomReminder(client, room, "@bot:server", { threadId: "$foreign" })).toBeUndefined();
+        expect(await scheduleRoomReminder(client, room, "@bot:server")).toBeUndefined();
+        expect(client.sendTextMessage).not.toHaveBeenCalled();
+        expect(dialog).toHaveBeenLastCalledWith(ErrorDialog, expect.anything());
+    });
+
+    it("does not send a request after the user cancels the form", async () => {
+        const { client, room } = setup();
+        vi.spyOn(Modal, "createDialog").mockReturnValue({
+            close: vi.fn(),
+            finished: Promise.resolve([false]),
+        } as ReturnType<typeof Modal.createDialog>);
+        expect(await scheduleRoomReminder(client, room, "@bot:server")).toBeUndefined();
+        expect(client.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it("starts relative reminders from the server message time instead of expiring during send preparation", async () => {
+        const { client, room } = setup();
+        const now = 1_800_000_000_000;
+        vi.spyOn(Date, "now").mockReturnValue(now);
+        vi.spyOn(Modal, "createDialog").mockReturnValue({
+            close: vi.fn(),
+            finished: Promise.resolve([true, { at: now - 5000, delaySeconds: 1, message: "Soon" }]),
+        } as ReturnType<typeof Modal.createDialog>);
+        const result = await scheduleRoomReminder(client, room, "@bot:server");
+        expect(client.sendTextMessage).toHaveBeenCalledWith(room.roomId, "!remind 1s Soon");
+        expect(result).toMatchObject({ status: "requested", at: now + 1000 });
     });
 });

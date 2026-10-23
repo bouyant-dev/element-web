@@ -36,6 +36,7 @@ export interface RoomThreadTab {
 /** A room's currently available thread conversations. */
 export interface RoomThreadTabsSnapshot {
     board?: "room" | "all";
+    docs?: boolean;
     canRemind?: boolean;
     threads: RoomThreadTab[];
     selectedId?: string;
@@ -50,6 +51,7 @@ export interface RoomThreadTabsSnapshot {
 /** Actions exposed by the room thread selector. */
 export interface RoomThreadTabsActions {
     openBoard: (board: "room" | "all") => void;
+    openDocs: () => void;
     setReminder: () => Promise<void>;
     select: (id?: string) => void;
     create: () => Promise<void>;
@@ -121,8 +123,19 @@ function ThreadActions({
 
 /** General, boards, and a small set of thread tabs, with the complete thread history close by. */
 export function RoomThreadTabsView({ vm }: { vm: RoomThreadTabsViewModel }): JSX.Element {
-    const { threads, selectedId, canCreate, canLinkToBoard, busy, showHistory, hasMore, error, board, canRemind } =
-        useViewModel(vm);
+    const {
+        threads,
+        selectedId,
+        canCreate,
+        canLinkToBoard,
+        busy,
+        showHistory,
+        hasMore,
+        error,
+        board,
+        docs,
+        canRemind,
+    } = useViewModel(vm);
     const [moreOpen, setMoreOpen] = useState(false);
     const selected = threads.find((thread) => thread.id === selectedId);
     const visibleThreads = threads.filter((thread) => !thread.archived).slice(0, 4);
@@ -138,7 +151,7 @@ export function RoomThreadTabsView({ vm }: { vm: RoomThreadTabsViewModel }): JSX
                         className={styles.tab}
                         kind="secondary"
                         size="md"
-                        aria-current={!selectedId && !board ? "page" : undefined}
+                        aria-current={!selectedId && !board && !docs ? "page" : undefined}
                         onClick={() => vm.select()}
                     >
                         {_t("matcha_threads|general")}
@@ -152,7 +165,45 @@ export function RoomThreadTabsView({ vm }: { vm: RoomThreadTabsViewModel }): JSX
                     >
                         {_t("matcha_threads|board")}
                     </Button>
+                    <Button
+                        className={styles.tab}
+                        kind="secondary"
+                        size="md"
+                        aria-current={docs ? "page" : undefined}
+                        onClick={vm.openDocs}
+                    >
+                        {_t("matcha_docs|title")}
+                    </Button>
                 </nav>
+                {visibleThreads.length > 0 && (
+                    <nav className={styles.threadTabs} aria-label={_t("matcha_threads|open_threads")}>
+                        {visibleThreads.map((thread) => {
+                            const active = selectedId === thread.id && !board && !docs;
+                            return (
+                                <div key={thread.id} className={styles.threadTab} data-selected={active}>
+                                    <Button
+                                        kind="tertiary"
+                                        size="md"
+                                        className={styles.tab}
+                                        title={thread.title}
+                                        aria-current={active ? "page" : undefined}
+                                        onClick={() => vm.select(thread.id)}
+                                    >
+                                        <span className={styles.tabLabel}>{thread.title}</span>
+                                    </Button>
+                                    {active && (thread.canManage || canLinkToBoard) && (
+                                        <ThreadActions
+                                            thread={thread}
+                                            vm={vm}
+                                            busy={busy}
+                                            canLinkToBoard={canLinkToBoard}
+                                        />
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </nav>
+                )}
                 <div className={styles.actions}>
                     <Button
                         className={styles.newButton}
@@ -205,36 +256,6 @@ export function RoomThreadTabsView({ vm }: { vm: RoomThreadTabsViewModel }): JSX
                     </Menu>
                 </div>
             </div>
-            {visibleThreads.length > 0 && (
-                <nav className={styles.threadTabs} aria-label={_t("matcha_threads|open_threads")}>
-                    {visibleThreads.map((thread) => {
-                        const active = selectedId === thread.id && !board;
-                        return (
-                            <div key={thread.id} className={styles.threadTab} data-selected={active}>
-                                <Button
-                                    kind="tertiary"
-                                    size="md"
-                                    className={styles.tab}
-                                    title={thread.title}
-                                    aria-current={active ? "page" : undefined}
-                                    onClick={() => vm.select(thread.id)}
-                                >
-                                    <ThreadsIcon aria-hidden="true" />
-                                    <span className={styles.tabLabel}>{thread.title}</span>
-                                </Button>
-                                {active && (thread.canManage || canLinkToBoard) && (
-                                    <ThreadActions
-                                        thread={thread}
-                                        vm={vm}
-                                        busy={busy}
-                                        canLinkToBoard={canLinkToBoard}
-                                    />
-                                )}
-                            </div>
-                        );
-                    })}
-                </nav>
-            )}
             {showHistory && (
                 <section className={styles.history} aria-label={_t("matcha_threads|history")}>
                     <div className={styles.historyHeader}>

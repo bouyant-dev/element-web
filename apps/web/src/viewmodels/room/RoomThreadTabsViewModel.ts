@@ -51,6 +51,7 @@ export interface RoomThreadTabsProps {
     client: MatrixClient;
     rightPanelStore: RightPanelStore;
     onBoardChange?: (board?: "room" | "all", initialThreadId?: string) => void;
+    onOpenDocs?: () => void;
     reminderBot?: string;
 }
 
@@ -356,6 +357,13 @@ export class RoomThreadTabsViewModel
     };
     public setBoard = (board?: "room" | "all"): void => {
         this.snapshot.merge({ board });
+    };
+    public openDocs = (): void => {
+        this.selectionRequest++;
+        this.props.onOpenDocs?.();
+    };
+    public setDocs = (docs: boolean): void => {
+        this.snapshot.merge({ docs });
     };
     public toggleHistory = (): void => {
         this.snapshot.merge({ showHistory: !this.getSnapshot().showHistory });

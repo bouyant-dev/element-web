@@ -18,11 +18,15 @@ import SdkConfig from "../../../SdkConfig";
 export function RoomThreadTabs({
     room,
     board,
+    docs,
     onBoardChange,
+    onOpenDocs,
 }: {
     room: Room;
     board?: "room" | "all";
+    docs?: boolean;
     onBoardChange: (board?: "room" | "all", initialThreadId?: string) => void;
+    onOpenDocs: () => void;
 }): JSX.Element {
     const client = useMatrixClientContext();
     const { rightPanelStore } = useContext(SDKContext);
@@ -33,9 +37,11 @@ export function RoomThreadTabs({
                 client,
                 rightPanelStore,
                 onBoardChange,
+                onOpenDocs,
                 reminderBot: SdkConfig.get("matcha_reminder_bot"),
             }),
     );
     useEffect(() => vm.setBoard(board), [vm, board]);
+    useEffect(() => vm.setDocs(!!docs), [vm, docs]);
     return <RoomThreadTabsView vm={vm} />;
 }

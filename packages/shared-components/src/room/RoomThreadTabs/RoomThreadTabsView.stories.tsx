@@ -32,7 +32,7 @@ const initial: RoomThreadTabsSnapshot = {
 function ThreadTabsStory({ overrides }: { overrides?: Partial<RoomThreadTabsSnapshot> }) {
     const [state, setState] = useState({ ...initial, ...overrides });
     const vm = useMockedViewModel(state, {
-        select: (id?: string) => setState((value) => ({ ...value, selectedId: id, board: undefined })),
+        select: (id?: string) => setState((value) => ({ ...value, selectedId: id, board: undefined, docs: false })),
         create: fn(async () => {}),
         rename: fn(async () => {}),
         linkToBoard: fn(async () => {}),
@@ -46,8 +46,9 @@ function ThreadTabsStory({ overrides }: { overrides?: Partial<RoomThreadTabsSnap
         toggleHistory: () => setState((value) => ({ ...value, showHistory: !value.showHistory })),
         retry: fn(async () => {}),
         loadMore: fn(async () => {}),
-        openBoard: (board: "room" | "all") => setState((value) => ({ ...value, board })),
+        openBoard: (board: "room" | "all") => setState((value) => ({ ...value, board, docs: false })),
         setReminder: fn(async () => {}),
+        openDocs: () => setState((value) => ({ ...value, docs: true, board: undefined, selectedId: undefined })),
     });
     return <RoomThreadTabsView vm={vm} />;
 }

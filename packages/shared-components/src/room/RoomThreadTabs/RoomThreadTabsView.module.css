@@ -20,8 +20,10 @@ Please see LICENSE in the repository root for full details.
     box-sizing: border-box;
     min-width: 0;
     min-height: var(--cpd-space-14x);
-    gap: var(--cpd-space-3x);
-    padding: var(--cpd-space-2x) var(--cpd-space-5x);
+    gap: var(--cpd-space-2x);
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    overflow-x: auto;
+    scrollbar-width: thin;
 }
 
 .primaryTabs,
@@ -36,6 +38,8 @@ Please see LICENSE in the repository root for full details.
 }
 .actions {
     min-width: 0;
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .container .tab,
@@ -82,10 +86,14 @@ Please see LICENSE in the repository root for full details.
 
 .threadTabs {
     display: flex;
-    align-items: stretch;
-    gap: var(--cpd-space-2x);
-    padding: 0 var(--cpd-space-5x) var(--cpd-space-3x);
-    min-width: 0;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    padding-inline: var(--cpd-space-2x);
+    border-inline: 1px solid var(--cpd-color-gray-400);
+    flex: 1;
+    min-width: 6rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
 }
 
 .threadTab {
@@ -93,14 +101,12 @@ Please see LICENSE in the repository root for full details.
     align-items: center;
     min-width: 0;
     max-width: 15rem;
-    flex: 1 1 0;
-    border: 1px solid var(--cpd-color-gray-400);
+    flex: 0 0 auto;
+    border: 0;
     border-radius: var(--cpd-space-2x);
     background: var(--cpd-color-bg-canvas-default);
 }
 .threadTab[data-selected="true"] {
-    flex-grow: 1.35;
-    border-color: var(--cpd-color-border-success-subtle);
     background: var(--cpd-color-bg-success-subtle);
 }
 .threadTab .tab {
@@ -249,26 +255,8 @@ Please see LICENSE in the repository root for full details.
 
 @container (max-width: 580px) {
     .toolbar {
-        flex-wrap: wrap;
         gap: var(--cpd-space-1x);
-        padding-inline: var(--cpd-space-3x);
-    }
-    .primaryTabs {
-        flex-basis: 100%;
-    }
-    .actions {
-        flex-wrap: wrap;
-    }
-    .threadTabs {
-        padding-inline: var(--cpd-space-3x);
-        flex-wrap: wrap;
-    }
-    .threadTab {
-        flex-basis: calc(50% - var(--cpd-space-2x));
-        max-width: none;
-    }
-    .threadTab[data-selected="true"] {
-        flex-grow: 1;
+        padding-inline: var(--cpd-space-2x);
     }
     .history {
         padding: var(--cpd-space-3x);

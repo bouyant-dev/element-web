@@ -14,6 +14,8 @@ import InfoIcon from "@vector-im/compound-design-tokens/assets/web/icons/info";
 import MoreIcon from "@vector-im/compound-design-tokens/assets/web/icons/overflow-horizontal";
 import PlusIcon from "@vector-im/compound-design-tokens/assets/web/icons/plus";
 import RoomIcon from "@vector-im/compound-design-tokens/assets/web/icons/room";
+import ClockIcon from "@vector-im/compound-design-tokens/assets/web/icons/history";
+import ReminderIcon from "@vector-im/compound-design-tokens/assets/web/icons/notifications";
 import ThreadIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads";
 
 import { type ViewModel, useViewModel } from "../../core/viewmodel";
@@ -35,6 +37,16 @@ export interface KanbanCard {
     archived: boolean;
     canEdit: boolean;
     threadId?: string;
+    dueAt?: number;
+    reminderRequested?: { eventId: string; at: number };
+    earlierCards?: {
+        id: string;
+        title: string;
+        description: string;
+        column: KanbanColumn;
+        archived: boolean;
+        dueAt?: number;
+    }[];
 }
 
 /** Presentation state for one room or the joined-room recap. */
@@ -50,7 +62,8 @@ export interface KanbanBoardSnapshot {
     showArchived: boolean;
     error?: string;
     unreadable: boolean;
-    editor?: { id?: string; roomId: string; title: string; description: string; threadId?: string };
+    canRemind?: boolean;
+    editor?: { id?: string; roomId: string; title: string; description: string; threadId?: string; dueAt?: string };
     threads: { id: string; title: string }[];
     threadsLoading: boolean;
     threadError?: string;
@@ -65,6 +78,8 @@ export interface KanbanBoardActions {
     setTitle: (value: string) => void;
     setDescription: (value: string) => void;
     setThread: (id: string) => void;
+    setDueAt: (value: string) => void;
+    remind: (card: KanbanCard) => Promise<void>;
     cancelEdit: () => void;
     save: () => Promise<void>;
     move: (card: KanbanCard, column: KanbanColumn) => Promise<void>;
@@ -93,10 +108,12 @@ function CardMenu({
     card,
     vm,
     disabled,
+    canRemind,
 }: {
     card: KanbanCard;
     vm: KanbanBoardViewModel;
     disabled: boolean;
+    canRemind: boolean;
 }): JSX.Element {
     const [open, setOpen] = useState(false);
     return (
@@ -122,6 +139,15 @@ function CardMenu({
                     disabled={disabled}
                     label={_t("matcha_kanban|edit")}
                     onSelect={() => vm.edit(card)}
+                    hideChevron
+                />
+            )}
+            {canRemind && !card.archived && (
+                <MenuItem
+                    Icon={ReminderIcon}
+                    disabled={disabled}
+                    label={_t("matcha_kanban|remind")}
+                    onSelect={() => void vm.remind(card)}
                     hideChevron
                 />
             )}
@@ -230,7 +256,7 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                         <Form.Label>{_t("matcha_kanban|title")}</Form.Label>
                         <Form.TextControl
                             value={state.editor.title}
-                            maxLength={200}
+                            maxLength={state.editor.threadId || !state.editor.id ? 100 : 200}
                             required
                             disabled={disabled}
                             onChange={(event) => vm.setTitle(event.target.value)}
@@ -250,27 +276,22 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                     </label>
                     <label className={styles.descriptionLabel}>
                         <Text as="span" size="sm">
-                            {_t("matcha_kanban|linked_thread")}
+                            {_t("matcha_kanban|deadline", {
+                                timezone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+                            })}
                         </Text>
-                        <select
-                            className={styles.statusSelect}
-                            value={state.editor.threadId ?? ""}
-                            disabled={disabled || state.threadsLoading}
-                            onChange={(event) => vm.setThread(event.target.value)}
-                        >
-                            <option value="">{_t("matcha_kanban|no_thread")}</option>
-                            {state.threads.map((thread) => (
-                                <option key={thread.id} value={thread.id}>
-                                    {thread.title}
-                                </option>
-                            ))}
-                        </select>
+                        <input
+                            type="datetime-local"
+                            value={state.editor.dueAt ?? ""}
+                            disabled={disabled}
+                            onChange={(event) => vm.setDueAt(event.target.value)}
+                        />
                     </label>
-                    {state.threadsLoading && (
-                        <Text size="sm" role="status">
-                            {_t("matcha_kanban|loading_threads")}
-                        </Text>
-                    )}
+                    <Text size="sm" className={styles.subtitle}>
+                        {state.editor.threadId || !state.editor.id
+                            ? _t("matcha_kanban|thread_card_hint")
+                            : _t("matcha_kanban|legacy_card_hint")}
+                    </Text>
                     {state.threadError && (
                         <Text size="sm" role="alert">
                             {state.threadError}
@@ -320,12 +341,82 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                                                 <Text as="h4" size="md" weight="semibold" className={styles.cardTitle}>
                                                     {card.title}
                                                 </Text>
-                                                {card.canEdit && <CardMenu card={card} vm={vm} disabled={disabled} />}
+                                                {card.canEdit && (
+                                                    <CardMenu
+                                                        card={card}
+                                                        vm={vm}
+                                                        disabled={disabled}
+                                                        canRemind={!!state.canRemind}
+                                                    />
+                                                )}
                                             </div>
                                             {card.description && (
                                                 <Text size="sm" className={styles.description}>
                                                     {card.description}
                                                 </Text>
+                                            )}
+                                            {card.dueAt && (
+                                                <Text
+                                                    as="time"
+                                                    dateTime={new Date(card.dueAt).toISOString()}
+                                                    size="sm"
+                                                    className={styles.dueBadge}
+                                                    data-overdue={
+                                                        card.dueAt < Date.now() &&
+                                                        card.column !== "done" &&
+                                                        !card.archived
+                                                    }
+                                                >
+                                                    <ClockIcon aria-hidden="true" />
+                                                    {_t("matcha_kanban|due", {
+                                                        date: new Date(card.dueAt).toLocaleString(undefined, {
+                                                            month: "short",
+                                                            day: "numeric",
+                                                            hour: "2-digit",
+                                                            minute: "2-digit",
+                                                            timeZoneName: "short",
+                                                        }),
+                                                    })}
+                                                </Text>
+                                            )}
+                                            {card.reminderRequested && (
+                                                <Text size="sm" className={styles.reminderStatus}>
+                                                    {_t("matcha_kanban|reminder_requested", {
+                                                        date: new Date(card.reminderRequested.at).toLocaleString(),
+                                                    })}
+                                                </Text>
+                                            )}
+                                            {!!card.earlierCards?.length && (
+                                                <details className={styles.earlierCards}>
+                                                    <summary>
+                                                        {_t("matcha_kanban|earlier_cards", {
+                                                            count: card.earlierCards.length,
+                                                        })}
+                                                    </summary>
+                                                    {card.earlierCards.map((earlier) => (
+                                                        <div key={earlier.id}>
+                                                            <Text size="sm" weight="semibold">
+                                                                {earlier.title}
+                                                            </Text>
+                                                            {earlier.description && (
+                                                                <Text size="sm">{earlier.description}</Text>
+                                                            )}
+                                                            <Text size="sm">
+                                                                {columnLabel(earlier.column)}
+                                                                {earlier.archived
+                                                                    ? ` · ${_t("matcha_kanban|archived")}`
+                                                                    : ""}
+                                                            </Text>
+                                                            {earlier.dueAt && (
+                                                                <Text size="sm">
+                                                                    {_t("matcha_kanban|due", {
+                                                                        date: new Date(earlier.dueAt).toLocaleString(),
+                                                                    })}
+                                                                </Text>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </details>
                                             )}
                                             {card.threadId && (
                                                 <Button

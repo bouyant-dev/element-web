@@ -83,9 +83,12 @@ jobs:
                   pnpm test:unit \
                     apps/web/src/viewmodels/room/RoomThreadTabsViewModel.test.ts \
                     apps/web/src/viewmodels/room/KanbanBoardViewModel.test.ts \
+                    apps/web/src/viewmodels/room/RoomDocsViewModel.test.ts \
+                    apps/web/src/viewmodels/room/RoomReminderViewModel.test.ts \
                     apps/web/src/viewmodels/room-list/RoomListViewModel.test.ts \
                     apps/web/src/utils/matcha/reminders.test.ts \
                     apps/web/src/utils/matcha/threads.test.ts \
+                    apps/web/src/utils/matcha/documents.test.ts \
                     apps/web/src/components/views/spaces/SpacePanel.test.tsx \
                     apps/web/src/components/structures/LoggedInView.test.tsx \
                     apps/web/src/components/structures/MatrixChat.test.tsx \
@@ -94,7 +97,9 @@ jobs:
                     apps/web/src/components/structures/ThreadView.test.tsx
                   pnpm --dir packages/shared-components exec vitest run --project unit \
                     src/room/RoomThreadTabs/RoomThreadTabsView.test.tsx \
-                    src/room/KanbanBoard/KanbanBoardView.test.tsx
+                    src/room/KanbanBoard/KanbanBoardView.test.tsx \
+                    src/room/RoomDocs/RoomDocsView.test.tsx \
+                    src/room/RoomReminder/RoomReminderView.test.tsx
                   pnpm --dir apps/web lint:types
                   pnpm --dir packages/shared-components lint:types
 
@@ -114,7 +119,8 @@ jobs:
             - name: Exercise thread tabs in a browser
               run: |
                   pnpm --dir apps/web exec playwright test \
-                    playwright/e2e/threads/matcha-thread-tabs.spec.ts --project=Chrome
+                    playwright/e2e/threads/matcha-thread-tabs.spec.ts \
+                    playwright/e2e/room/matcha-docs.spec.ts --project=Chrome
 
             - name: Build the runtime image
               env:

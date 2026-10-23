@@ -55,6 +55,16 @@ declare module "matrix-js-sdk/src/types" {
     }
 
     export interface TimelineEvents {
+        "com.matchahoneylatte.docs.update": {
+            "version": 1;
+            "doc": "main";
+            "kind": "update" | "chunk" | "commit";
+            "update_id": string;
+            "chunk"?: number;
+            "chunks": number;
+            "data"?: string;
+            "m.relates_to": { rel_type: string; event_id: string };
+        };
         "com.matchahoneylatte.thread.metadata": {
             "version": 1;
             "name"?: string;
@@ -63,6 +73,8 @@ declare module "matrix-js-sdk/src/types" {
         };
         "com.matchahoneylatte.kanban.board": { version: 1 };
         "com.matchahoneylatte.kanban.card": {
+            "due_at"?: number;
+            "reminder_requested"?: { event_id: string; at: number };
             "version": 1;
             "card_id": string;
             "title": string;

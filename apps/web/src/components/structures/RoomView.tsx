@@ -67,6 +67,7 @@ import RightPanel from "./RightPanel";
 import SdkConfig from "../../SdkConfig";
 import { RoomThreadTabs } from "../views/rooms/RoomThreadTabs";
 import { KanbanBoard } from "../views/rooms/KanbanBoard";
+import { RoomDocs } from "../views/rooms/RoomDocs";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
 import SettingsStore from "../../settings/SettingsStore";
@@ -242,6 +243,7 @@ export interface IRoomState {
     showRightPanel: boolean;
     matchaBoard?: "room" | "all";
     matchaBoardThreadId?: string;
+    matchaDocs?: boolean;
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -650,6 +652,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             roomId: roomId ?? undefined,
             matchaBoard: roomId === this.state.roomId ? this.state.matchaBoard : undefined,
             matchaBoardThreadId: roomId === this.state.roomId ? this.state.matchaBoardThreadId : undefined,
+            matchaDocs: roomId === this.state.roomId ? this.state.matchaDocs : false,
             roomAlias: roomAlias,
             roomLoading: roomLoading,
             roomLoadError,
@@ -1153,12 +1156,22 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             showRightPanel: roomId ? this.context.rightPanelStore.isOpenForRoom(roomId) : false,
             matchaBoard: threadSelected ? undefined : this.state.matchaBoard,
             matchaBoardThreadId: threadSelected ? undefined : this.state.matchaBoardThreadId,
+            matchaDocs: threadSelected ? false : this.state.matchaDocs,
         });
     };
 
     private onMatchaBoardChange = (matchaBoard?: "room" | "all", initialThreadId?: string): void => {
         if (matchaBoard) this.context.rightPanelStore.hide(this.state.roomId ?? null);
-        this.setState({ matchaBoard, matchaBoardThreadId: matchaBoard === "room" ? initialThreadId : undefined });
+        this.setState({
+            matchaBoard,
+            matchaBoardThreadId: matchaBoard === "room" ? initialThreadId : undefined,
+            matchaDocs: false,
+        });
+    };
+
+    private onOpenMatchaDocs = (): void => {
+        this.context.rightPanelStore.hide(this.state.roomId ?? null);
+        this.setState({ matchaDocs: true, matchaBoard: undefined, matchaBoardThreadId: undefined });
     };
 
     private onPageUnload = (event: BeforeUnloadEvent): string | undefined => {
@@ -2565,13 +2578,15 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const threadInMain =
             showThreadTabs &&
             !this.state.matchaBoard &&
+            !this.state.matchaDocs &&
             !isRoomEncryptionLoading &&
             this.state.showRightPanel &&
             this.context.rightPanelStore.currentCardForRoom(this.state.room.roomId).phase ===
                 RightPanelPhases.ThreadView &&
             !this.state.search;
         const boardInMain = showThreadTabs && !!this.state.matchaBoard && !this.state.search;
-        let hideMessagePanel = threadInMain || boardInMain;
+        const docsInMain = showThreadTabs && !!this.state.matchaDocs && !this.state.search;
+        let hideMessagePanel = threadInMain || boardInMain || docsInMain;
 
         if (this.state.search) {
             searchResultsPanel = (
@@ -2761,12 +2776,19 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         key={this.state.room.roomId}
                         room={this.state.room}
                         board={this.state.matchaBoard}
+                        docs={this.state.matchaDocs}
                         onBoardChange={this.onMatchaBoardChange}
+                        onOpenDocs={this.onOpenMatchaDocs}
                     />
-                    <div className="mx_RoomView_generalTimeline" hidden={threadInMain || boardInMain}>
+                    <div className="mx_RoomView_generalTimeline" hidden={threadInMain || boardInMain || docsInMain}>
                         {mainSplitBody}
                     </div>
                     {threadInMain && <main className="mx_RoomView_threadTimeline">{rightPanel}</main>}
+                    {docsInMain && (
+                        <main className="mx_RoomView_board">
+                            <RoomDocs key={this.state.room.roomId} room={this.state.room} />
+                        </main>
+                    )}
                     {boardInMain && (
                         <main className="mx_RoomView_board">
                             <KanbanBoard

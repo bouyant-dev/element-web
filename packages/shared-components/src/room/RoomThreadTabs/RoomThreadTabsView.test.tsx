@@ -15,6 +15,7 @@ import { MockViewModel } from "../../core/viewmodel/MockViewModel";
 
 class TestViewModel extends MockViewModel<RoomThreadTabsSnapshot> {
     public openBoard = vi.fn();
+    public openDocs = vi.fn();
     public setReminder = vi.fn().mockResolvedValue(undefined);
     public select = vi.fn();
     public create = vi.fn().mockResolvedValue(undefined);
@@ -40,6 +41,24 @@ const snapshot: RoomThreadTabsSnapshot = {
 };
 
 describe("RoomThreadTabsView", () => {
+    it("opens Docs and keeps the approved navigation on one horizontal row", async () => {
+        const vm = new TestViewModel({ ...snapshot, docs: true, selectedId: undefined });
+        render(
+            <div style={{ width: "1000px" }}>
+                <RoomThreadTabsView vm={vm} />
+            </div>,
+        );
+        const docs = screen.getByRole("button", { name: "Docs" });
+        expect(docs).toHaveAttribute("aria-current", "page");
+        expect(screen.getByRole("button", { name: "General" })).not.toHaveAttribute("aria-current");
+        await userEvent.click(docs);
+        expect(vm.openDocs).toHaveBeenCalledOnce();
+        const centers = ["General", "Board", "Docs", "Project plans", "New thread", "Thread history"].map((name) => {
+            const rect = screen.getByRole("button", { name }).getBoundingClientRect();
+            return rect.top + rect.height / 2;
+        });
+        expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(2);
+    });
     it("makes thread creation and complete history visible text actions", async () => {
         const vm = new TestViewModel(snapshot);
         render(<RoomThreadTabsView vm={vm} />);

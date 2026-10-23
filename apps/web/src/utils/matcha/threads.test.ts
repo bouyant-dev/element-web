@@ -93,11 +93,24 @@ describe("shared thread metadata", () => {
         expect(client.redactEvent).not.toHaveBeenCalled();
     });
 
-    it("preserves legacy archive state and original root title when no revisions exist", async () => {
+    it.each([true, false])("preserves an explicit legacy archive decision %s", async (archived) => {
         room.currentState.setStateEvents([
-            new MatrixEvent({ ...wire("$legacy", THREAD_ARCHIVE_EVENT, { archived: true }), state_key: "$root" }),
+            new MatrixEvent({ ...wire("$legacy", THREAD_ARCHIVE_EVENT, { archived }), state_key: "$root" }),
         ]);
-        expect(await readThreadMetadata(client, room, root)).toEqual({ name: "Original name", archived: true });
+        expect(await readThreadMetadata(client, room, root)).toEqual({
+            name: "Original name",
+            archived,
+            archiveExplicit: true,
+        });
+    });
+
+    it("distinguishes a shared restore from the default active state", async () => {
+        vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [revision("$restore", { archived: false })] });
+        expect(await readThreadMetadata(client, room, root)).toEqual({
+            name: "Original name",
+            archived: false,
+            archiveExplicit: true,
+        });
     });
 
     it("combines latest independent fields across server-ordered pages rather than sender timestamps", async () => {
@@ -106,7 +119,11 @@ describe("shared thread metadata", () => {
             .mockResolvedValueOnce({
                 chunk: [revision("$old-name", { name: "Stale" }, 999), revision("$archive", { archived: true })],
             });
-        expect(await readThreadMetadata(client, room, root)).toEqual({ name: "Renamed", archived: true });
+        expect(await readThreadMetadata(client, room, root)).toEqual({
+            name: "Renamed",
+            archived: true,
+            archiveExplicit: true,
+        });
         expect(client.fetchRelations).toHaveBeenCalledTimes(2);
         expect(client.fetchRelations).toHaveBeenLastCalledWith(
             roomId,

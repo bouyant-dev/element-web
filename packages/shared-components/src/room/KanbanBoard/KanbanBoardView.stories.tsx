@@ -26,6 +26,7 @@ const cards: KanbanCard[] = [
         roomId: "project",
         roomName: "Product",
         title: "Review the beta launch checklist",
+        dueAt: new Date("2027-03-10T10:30").getTime(),
         description: "One final pass through threads, boards, and reminders before we invite the team.",
         column: "todo",
         archived: false,
@@ -94,6 +95,7 @@ const initial: KanbanBoardSnapshot = {
     hasMore: true,
     showArchived: false,
     unreadable: false,
+    canRemind: true,
     threads: [
         { id: "$launch", title: "Beta launch" },
         { id: "$design", title: "Design review" },
@@ -125,6 +127,8 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
         setThread: (threadId: string) =>
             setState((value) => ({ ...value, editor: { ...value.editor!, threadId: threadId || undefined } })),
         openThread: fn(async () => {}),
+        setDueAt: (dueAt: string) => setState((value) => ({ ...value, editor: { ...value.editor!, dueAt } })),
+        remind: fn(async () => {}),
         cancelEdit: () => setState((value) => ({ ...value, editor: undefined })),
         save: fn(async () =>
             setState((value) => {

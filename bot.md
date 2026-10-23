@@ -16,6 +16,22 @@ synced with official stable releases, not upgrading Synapse.
 
 ## Implemented behavior
 
+### Checkpoint and current extension
+
+The deployed Personal release is checkpointed at `8d7b478424b6d374c77b71dcbdc08be2eefcc308` on
+`checkpoint/personal-2026-10-23` and `main`, both pushed to `bouyant-dev/element-web`. The fork had no `main`, so it was
+created at that complete checkpoint rather than overwriting another branch. New work is on `feature/room-docs`.
+
+The user requested per-chat collaborative Markdown Docs, structured reminders (relative delay or exact local time,
+separate message), one native thread per Kanban card, and per-card deadlines/reminder actions. After reviewing both
+designs, the user explicitly chose **B: one horizontal navigation row**. The approved comparison is in the sibling
+`element-web-artifacts/navigation-design/` directory, served locally at port6018 with synthetic data.
+
+Docs uses stable open-source CodeMirror6, Yjs13 and y-codemirror.next, with the existing sanitized Markdown preview.
+The integration transports encrypted append-only Yjs updates through Matrix; no separate document service or
+Synapse changes are planned. New reminder UI requires the backward-compatible bot update before frontend rollout.
+Implementation and testing are in progress; the Deployment status below remains authoritative until updated.
+
 - Favourites is the first room filter. Beta defaults `RoomList.showSections` to false; existing account preferences can override defaults.
 - Per-chat General and up to four thread tabs. New thread creates a named native thread; Thread history shows all active and archived threads with rename/archive/restore controls. Selected threads reuse Element's native thread timeline, encryption, composer, attachments and receipts in the main area.
 - Archive/restore removes threads from beta's selector for everyone and preserves their messages. Other Matrix clients can still show these threads. Normal message permissions govern new archive/rename metadata; old archive state remains readable.

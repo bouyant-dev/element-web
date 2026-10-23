@@ -1,0 +1,83 @@
+/*
+Copyright 2026 David
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    color: var(--cpd-color-text-primary);
+    background: var(--cpd-color-bg-canvas-default);
+}
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-4x);
+    padding: var(--cpd-space-5x) var(--cpd-space-6x) var(--cpd-space-3x);
+}
+.header h2 {
+    margin: 0;
+}
+.subtitle,
+.status,
+.footer {
+    color: var(--cpd-color-text-secondary);
+}
+.subtitle {
+    margin: var(--cpd-space-1x) 0 0;
+}
+.status {
+    flex-shrink: 0;
+}
+.toolbar,
+.modes {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-2x);
+}
+.toolbar {
+    justify-content: space-between;
+    padding: 0 var(--cpd-space-6x) var(--cpd-space-3x);
+    border-bottom: 1px solid var(--cpd-color-border-interactive-secondary);
+}
+.modes [aria-pressed="true"] {
+    background: var(--cpd-color-bg-subtle-primary);
+}
+.body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+.editor {
+    height: 100%;
+    overflow: auto;
+}
+.editor[hidden] {
+    display: none;
+}
+.notice {
+    padding: var(--cpd-space-3x) var(--cpd-space-6x);
+}
+.notice[role="alert"] {
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+.footer {
+    margin: 0;
+    padding: var(--cpd-space-3x) var(--cpd-space-6x);
+    border-top: 1px solid var(--cpd-color-border-interactive-secondary);
+}
+@media (max-width: 700px) {
+    .header,
+    .toolbar,
+    .notice,
+    .footer {
+        padding-inline: var(--cpd-space-3x);
+    }
+    .header {
+        align-items: flex-start;
+    }
+}

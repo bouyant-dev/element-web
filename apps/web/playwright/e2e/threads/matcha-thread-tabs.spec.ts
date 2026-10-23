@@ -76,7 +76,9 @@ test.describe("Matcha room thread tabs", () => {
         await capturePreview(page, testInfo, "thread-chat-preview.png");
         await chooseMore(page, "Set reminder");
         const reminderDialog = page.getByRole("dialog");
-        await reminderDialog.getByRole("textbox").fill("10m Review the beta navigation");
+        await reminderDialog.getByRole("spinbutton", { name: "Duration", exact: true }).fill("10");
+        await reminderDialog.getByRole("combobox", { name: "Unit", exact: true }).selectOption("m");
+        await reminderDialog.getByRole("textbox", { name: "Message", exact: true }).fill("Review the beta navigation");
         await reminderDialog.getByRole("heading", { name: "Set reminder", exact: true }).click();
         await expect(reminderDialog.getByRole("button", { name: "Request reminder", exact: true })).toBeEnabled();
         await expect(page.getByRole("tooltip")).toHaveCount(0);
@@ -316,16 +318,41 @@ test.describe("Matcha room thread tabs", () => {
         await expect(threadTabs.getByRole("button", { name: /^(Release Q4|Topic [1-5])$/ })).toHaveCount(4);
 
         await page.getByRole("button", { name: "Thread actions", exact: true }).click();
+        await page.evaluate(
+            (botUserId) => Object.assign(window.mxReactSdkConfig, { matcha_reminder_bot: botUserId }),
+            bot.credentials!.userId,
+        );
         await page.getByRole("menuitem", { name: "Link to board", exact: true }).click();
-        await expect(page.getByRole("combobox", { name: "Linked thread (optional)" })).toHaveValue(rootId);
+        await expect(page.getByRole("article")).toHaveCount(6);
+        await expect(page.getByRole("textbox", { name: "Card title", exact: true })).toHaveValue("Release Q4");
+        const due = await page.evaluate(() => {
+            const date = new Date(Date.now() + 3_600_000);
+            const pad = (value: number): string => String(value).padStart(2, "0");
+            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+        });
+        await page.getByLabel(/^Deadline/).fill(due);
         await page.getByRole("textbox", { name: "Card title", exact: true }).fill("Ship release");
         await page.getByRole("button", { name: "Save card", exact: true }).click();
         const card = page.getByRole("article", { name: "Ship release", exact: true });
         await expect(card.getByRole("button", { name: "Open thread", exact: true })).toBeVisible();
         await expect(page.getByRole("button", { name: "Refresh board", exact: true })).toHaveCount(0);
+        await expect(card).toContainText("Due");
+        await card.getByRole("button", { name: "Actions for Ship release" }).click();
+        await page.getByRole("menuitem", { name: "Remind", exact: true }).click();
+        const cardReminder = page.getByRole("dialog", { name: "Set reminder" });
+        await expect(cardReminder.getByRole("combobox", { name: "When" })).toHaveValue("at");
+        await expect(cardReminder.getByLabel("Date and time", { exact: true })).toHaveValue(new RegExp("^" + due));
+        await expect(cardReminder.getByRole("textbox", { name: "Message" })).toHaveValue(/Ship release/);
+        await cardReminder.getByRole("button", { name: "Request reminder", exact: true }).click();
+        await page
+            .getByRole("dialog", { name: "Reminder requested" })
+            .getByRole("button", { name: "OK", exact: true })
+            .click();
+        await expect(card).toContainText("Reminder requested for");
+        await expect(page.getByRole("article", { name: "Ship release", exact: true })).toHaveCount(1);
         await capturePreview(page, testInfo, "linked-board-preview.png");
         await card.getByRole("button", { name: "Open thread", exact: true }).click();
-        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveAttribute(
+        await expect(threadTabs.getByRole("button", { name: "Ship release", exact: true })).toHaveAttribute(
             "aria-current",
             "page",
         );
@@ -358,16 +385,16 @@ test.describe("Matcha room thread tabs", () => {
                 ),
             )
             .toBe(true);
-        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveCount(0);
+        await expect(threadTabs.getByRole("button", { name: "Ship release", exact: true })).toHaveCount(0);
         await page.reload();
         await page.getByRole("button", { name: "Thread history", exact: true }).click();
         const archived = history
             .getByRole("listitem")
-            .filter({ has: page.getByRole("button", { name: "Release Q4", exact: true }) });
+            .filter({ has: page.getByRole("button", { name: "Ship release", exact: true }) });
         await expect(archived).toContainText("Archived");
         await capturePreview(page, testInfo, "thread-history-live-preview.png");
         await archived.getByRole("button", { name: "Restore thread", exact: true }).click();
-        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toBeVisible();
+        await expect(threadTabs.getByRole("button", { name: "Ship release", exact: true })).toBeVisible();
         await expect(page.getByRole("main").getByRole("complementary")).toBeVisible();
 
         const wire = await app.client.evaluate(
@@ -394,13 +421,16 @@ test.describe("Matcha room thread tabs", () => {
         expect(JSON.stringify(wire)).not.toContain("Release Q4");
         expect(JSON.stringify(wire)).not.toContain("Release planning");
         expect(JSON.stringify(wire.cards)).not.toContain(rootId);
+        expect(JSON.stringify(wire.cards)).not.toContain("due_at");
+        expect(JSON.stringify(wire.cards)).not.toContain("reminder_requested");
+        expect(JSON.stringify(wire)).not.toContain("Ship release");
         const otherRoom = await app.client.createRoom({ name: "Operations" });
         await page.goto("/#/room/" + otherRoom);
         await page.getByRole("tree", { name: "Spaces" }).getByRole("button", { name: "Personal", exact: true }).click();
         await expect(page).toHaveURL((url) => url.hash === "#/personal");
         await card.getByRole("button", { name: "Open thread", exact: true }).click();
         await expect(page).toHaveURL((url) => decodeURIComponent(url.hash) === "#/room/" + roomId);
-        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveAttribute(
+        await expect(threadTabs.getByRole("button", { name: "Ship release", exact: true })).toHaveAttribute(
             "aria-current",
             "page",
         );

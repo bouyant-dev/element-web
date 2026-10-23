@@ -21,6 +21,8 @@ class TestViewModel extends MockViewModel<KanbanBoardSnapshot> {
     public setTitle = vi.fn();
     public setDescription = vi.fn();
     public setThread = vi.fn();
+    public setDueAt = vi.fn();
+    public remind = vi.fn().mockResolvedValue(undefined);
     public openThread = vi.fn();
     public cancelEdit = vi.fn();
     public save = vi.fn();
@@ -108,35 +110,60 @@ describe("KanbanBoardView", () => {
             error: "Save failed",
         });
         render(<KanbanBoardView vm={vm} />);
-        expect(screen.getByLabelText("Card title")).toHaveAttribute("maxlength", "200");
+        expect(screen.getByLabelText("Card title")).toHaveAttribute("maxlength", "100");
         expect(screen.getByLabelText("Description (optional)")).toHaveAttribute("maxlength", "4000");
         expect(screen.getByRole("alert").textContent).toContain("Save failed");
-        await userEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+        await userEvent.click(screen.getByRole("button", { name: "Retry" }));
         expect(vm.reload).toHaveBeenCalled();
         await userEvent.click(screen.getByRole("button", { name: "Save card" }));
         expect(vm.save).toHaveBeenCalled();
     });
 
-    it("lets a card link and unlink a named chat thread and opens its conversation", async () => {
+    it("edits deadlines without unlinking the one-to-one thread and opens its conversation", async () => {
         const card = { ...snapshot.cards[0], threadId: "$launch" };
         const vm = new TestViewModel({
             ...snapshot,
             cards: [card],
-            editor: { roomId: "!room:server", title: "Title", description: "", threadId: "$launch" },
-            threads: [
-                { id: "$launch", title: "Beta launch" },
-                { id: "$design", title: "Design review" },
-            ],
+            editor: {
+                roomId: "!room:server",
+                title: "Title",
+                description: "",
+                threadId: "$launch",
+                dueAt: "2027-03-10T10:30",
+            },
         });
         render(<KanbanBoardView vm={vm} />);
-        const selector = screen.getByRole("combobox", { name: "Linked thread (optional)" });
-        expect(selector).toHaveValue("$launch");
-        await userEvent.selectOptions(selector, "$design");
-        expect(vm.setThread).toHaveBeenLastCalledWith("$design");
-        await userEvent.selectOptions(selector, "");
-        expect(vm.setThread).toHaveBeenLastCalledWith("");
+        expect(screen.queryByRole("combobox", { name: "Linked thread (optional)" })).not.toBeInTheDocument();
+        const deadline = screen.getByLabelText(/Deadline/);
+        expect(deadline).toHaveValue("2027-03-10T10:30");
+        await userEvent.clear(deadline);
+        expect(vm.setDueAt).toHaveBeenCalledWith("");
         await userEvent.click(screen.getByRole("button", { name: "Open thread" }));
         expect(vm.openThread).toHaveBeenCalledWith(card);
+    });
+    it("keeps earlier duplicate content accessible and labels reminder requests honestly", async () => {
+        const card = {
+            ...snapshot.cards[0],
+            dueAt: new Date("2027-03-10T10:30").getTime(),
+            reminderRequested: { eventId: "$request", at: 1000 },
+            earlierCards: [
+                {
+                    id: "old",
+                    title: "Earlier idea",
+                    description: "Preserved notes",
+                    column: "done" as const,
+                    archived: true,
+                },
+            ],
+        };
+        const vm = new TestViewModel({ ...snapshot, cards: [card], canRemind: true });
+        render(<KanbanBoardView vm={vm} />);
+        await userEvent.click(screen.getByText("Earlier linked cards (1)"));
+        expect(screen.getByText("Preserved notes")).toBeVisible();
+        expect(screen.getByText(/Reminder requested for .*Wait for bot confirmation/)).toBeVisible();
+        await userEvent.click(screen.getByRole("button", { name: "Actions for Ship release" }));
+        await userEvent.click(screen.getByRole("menuitem", { name: "Remind" }));
+        expect(vm.remind).toHaveBeenCalledWith(card);
     });
     it("opens card editing from the compact menu and keeps busy controls disabled", async () => {
         const vm = new TestViewModel(snapshot);
@@ -188,6 +215,6 @@ describe("KanbanBoardView", () => {
         expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Actions for Ship release" })).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Refresh board" })).not.toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Retry", exact: true })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     });
 });

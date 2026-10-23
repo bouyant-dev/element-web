@@ -32,6 +32,8 @@ export interface ThreadMetadataPatch {
 export interface ThreadMetadata {
     name: string;
     archived: boolean;
+    /** Distinguishes a shared archive/restore decision from the default active state. */
+    archiveExplicit?: boolean;
 }
 
 /** Normal joined members can manage metadata when their room permits these events. */
@@ -118,15 +120,16 @@ export async function readThreadMetadata(client: MatrixClient, room: Room, root:
                 continue;
             if (name === undefined && validThreadName(content.name)) name = content.name.trim();
             if (archived === undefined && typeof content.archived === "boolean") archived = content.archived;
-            if (name !== undefined && archived !== undefined) return { name, archived };
+            if (name !== undefined && archived !== undefined) return { name, archived, archiveExplicit: true };
         }
-        if (!response.next_batch)
+        if (!response.next_batch) {
+            const legacy = room.currentState.getStateEvents(THREAD_ARCHIVE_EVENT, id)?.getContent().archived;
             return {
                 name: name ?? fallback,
-                archived:
-                    archived ??
-                    room.currentState.getStateEvents(THREAD_ARCHIVE_EVENT, id)?.getContent().archived === true,
+                archived: archived ?? legacy === true,
+                ...(archived !== undefined || typeof legacy === "boolean" ? { archiveExplicit: true } : {}),
             };
+        }
         if (response.next_batch === from) throw new Error("Thread metadata pagination did not advance");
         from = response.next_batch;
     }

@@ -24,10 +24,18 @@ import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 
 import { KanbanBoardViewModel, KANBAN_STATE_EVENT, KANBAN_CARD_EVENT, KANBAN_ROOT_EVENT } from "./KanbanBoardViewModel";
+import { createNamedThread, THREAD_METADATA_EVENT } from "../../utils/matcha/threads";
+import { scheduleRoomReminder } from "../../utils/matcha/reminders";
 import Modal from "../../Modal";
 import dispatcher from "../../dispatcher/dispatcher";
 import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
 import { Action } from "../../dispatcher/actions";
+
+vi.mock("../../utils/matcha/threads", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/matcha/threads")>()),
+    createNamedThread: vi.fn(),
+}));
+vi.mock("../../utils/matcha/reminders", () => ({ scheduleRoomReminder: vi.fn() }));
 
 describe("KanbanBoardViewModel", () => {
     let client: MatrixClient;
@@ -64,6 +72,9 @@ describe("KanbanBoardViewModel", () => {
         const result = new Room(id, client, client.getSafeUserId());
         result.name = "Project chat";
         vi.spyOn(result, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        vi.spyOn(result, "maySendMessage").mockReturnValue(true);
+        vi.spyOn(result, "createThreadsTimelineSets").mockResolvedValue(null);
+        vi.spyOn(result, "fetchRoomThreads").mockResolvedValue();
         vi.spyOn(result.currentState, "maySendEvent").mockReturnValue(true);
         vi.spyOn(result.currentState, "maySendStateEvent").mockReturnValue(true);
         result.currentState.setStateEvents([
@@ -87,9 +98,14 @@ describe("KanbanBoardViewModel", () => {
             unsigned: { "m.relations": { "m.thread": { count: 1 } } },
         });
         const thread = { id, rootEvent: root } as Thread;
-        vi.spyOn(source, "getThreads").mockReturnValue([thread]);
-        vi.spyOn(source, "getThread").mockImplementation((eventId) => (eventId === id ? thread : null));
-        vi.spyOn(source, "findEventById").mockImplementation((eventId) => (eventId === id ? root : undefined));
+        const threads = [...source.getThreads().filter((item) => item.id !== id), thread];
+        vi.spyOn(source, "getThreads").mockReturnValue(threads);
+        vi.spyOn(source, "getThread").mockImplementation(
+            (eventId) => threads.find((item) => item.id === eventId) ?? null,
+        );
+        vi.spyOn(source, "findEventById").mockImplementation(
+            (eventId) => threads.find((item) => item.id === eventId)?.rootEvent,
+        );
         return root;
     }
 
@@ -102,7 +118,19 @@ describe("KanbanBoardViewModel", () => {
         events = [revision("one", "Plan release")];
         vi.mocked(client.getRooms).mockReturnValue([room]);
         vi.mocked(client.getRoom).mockImplementation((id) => (id === room.roomId ? room : null));
-        client.fetchRelations = vi.fn().mockImplementation(async () => ({ chunk: events }));
+        client.fetchRelations = vi.fn().mockImplementation(async (_room, root) => ({
+            chunk: events.filter(
+                (event) => event.content?.["m.relates_to"]?.event_id === root || event.type === "m.room.encrypted",
+            ),
+        }));
+        vi.mocked(createNamedThread)
+            .mockReset()
+            .mockImplementation(async (_client, source, name) => {
+                const root = makeThread(source, "$created" + vi.mocked(createNamedThread).mock.calls.length);
+                root.getContent().body = name.trim();
+                return root;
+            });
+        vi.mocked(scheduleRoomReminder).mockReset().mockResolvedValue(undefined);
         client.getStateEvent = vi.fn().mockResolvedValue({ version: 1, event_id: "$board" });
         vi.spyOn(client, "getEventMapper").mockReturnValue((raw) => new MatrixEvent(raw));
         vi.spyOn(client, "decryptEventIfNeeded").mockResolvedValue();
@@ -330,25 +358,21 @@ describe("KanbanBoardViewModel", () => {
         expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ room_id: room.roomId }));
     });
 
-    it("links and unlinks a card through encrypted-compatible timeline revisions", async () => {
+    it("prevents linking a second card to a thread or unlinking its canonical card", async () => {
         makeThread();
         vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
         await vm.reload();
-        vm.edit(vm.getSnapshot().cards[0]);
+        const manual = vm.getSnapshot().cards.find((card) => !card.threadId)!;
+        vm.edit(manual);
         vm.setThread("$thread");
+        expect(vm.getSnapshot()).toMatchObject({ threadError: expect.any(String), editor: { id: manual.id } });
         await vm.save();
-        expect(client.sendEvent).toHaveBeenLastCalledWith(
-            room.roomId,
-            KANBAN_CARD_EVENT,
-            expect.objectContaining({ thread_id: "$thread" }),
-        );
-        expect(vm.getSnapshot().cards[0].threadId).toBe("$thread");
-        vm.edit(vm.getSnapshot().cards[0]);
+        expect(client.sendEvent).not.toHaveBeenCalled();
+        const linked = vm.getSnapshot().cards.find((card) => card.threadId)!;
+        vm.edit(linked);
         vm.setThread("");
-        await vm.save();
-        expect(vm.getSnapshot().cards[0].threadId).toBeUndefined();
-        expect(vi.mocked(client.sendEvent).mock.calls.at(-1)?.[2]).not.toHaveProperty("thread_id");
-        expect(client.sendStateEvent).not.toHaveBeenCalled();
+        expect(vm.getSnapshot().editor?.threadId).toBe("$thread");
+        expect(vm.getSnapshot().cards.filter((card) => card.threadId === "$thread")).toHaveLength(1);
     });
 
     it("opens a thread-linked draft once and loads the room's thread titles", async () => {
@@ -406,7 +430,8 @@ describe("KanbanBoardViewModel", () => {
         vm.setThread("$foreign");
         await vm.save();
         expect(client.sendEvent).not.toHaveBeenCalled();
-        expect(vm.getSnapshot().editor).toMatchObject({ title: "Invalid link", threadId: "$foreign" });
+        expect(vm.getSnapshot().editor?.title).toBe("Invalid link");
+        expect(vm.getSnapshot().threadError).toBeDefined();
     });
 
     it("keeps existing links when choices cannot load and prevents navigation after leaving", async () => {
@@ -416,7 +441,7 @@ describe("KanbanBoardViewModel", () => {
         await vm.reload();
         vm.edit(vm.getSnapshot().cards[0]);
         await vi.waitFor(() => expect(vm!.getSnapshot().threadsLoading).toBe(false));
-        expect(vm.getSnapshot()).toMatchObject({ threadError: expect.any(String), editor: { threadId: "$thread" } });
+        expect(vm.getSnapshot()).toMatchObject({ error: expect.any(String), editor: { threadId: "$thread" } });
         vi.mocked(room.getMyMembership).mockReturnValue(KnownMembership.Leave);
         await vm.openThread(vm.getSnapshot().cards[0]);
         expect(rightPanelStore.setCard).not.toHaveBeenCalled();
@@ -477,42 +502,253 @@ describe("KanbanBoardViewModel", () => {
         await refresh;
     });
 
-    it.each([false, true])(
-        "loads thread choices four at a time and stops a cancelled editor (cancel=%s)",
-        async (cancel) => {
-            const threads = Array.from({ length: 9 }, (_, index) => ({
-                id: "$thread" + index,
-                rootEvent: new MatrixEvent({
-                    event_id: "$thread" + index,
-                    room_id: room.roomId,
-                    type: "m.room.message",
-                    content: { body: "Thread " + index, msgtype: "m.text" },
-                }),
-            })) as Thread[];
-            vi.spyOn(room, "getThreads").mockReturnValue(threads);
-            vi.spyOn(room, "getThread").mockImplementation((id) => threads.find((thread) => thread.id === id) ?? null);
-            vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
-            await vm.reload();
-            const pending: ((value: { chunk: IEvent[] }) => void)[] = [];
-            vi.mocked(client.fetchRelations).mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
-            vm.edit();
-            await vi.waitFor(() => expect(pending).toHaveLength(4));
-            if (cancel) vm.cancelEdit();
-            pending.slice(0, 4).forEach((resolve) => resolve({ chunk: [] }));
-            if (cancel) {
-                await new Promise((resolve) => setTimeout(resolve, 0));
-                expect(pending).toHaveLength(4);
-                expect(vm.getSnapshot()).toMatchObject({ editor: undefined, threads: [], threadsLoading: false });
-                return;
-            }
-            await vi.waitFor(() => expect(pending).toHaveLength(8));
-            pending.slice(4, 8).forEach((resolve) => resolve({ chunk: [] }));
-            await vi.waitFor(() => expect(pending).toHaveLength(9));
-            pending[8]({ chunk: [] });
-            await vi.waitFor(() => expect(vm!.getSnapshot().threadsLoading).toBe(false));
-            expect(vm.getSnapshot().threads).toEqual(
-                threads.map((thread, index) => ({ id: thread.id, title: "Thread " + index })),
+    it("projects every loaded thread four at a time", async () => {
+        const threads = Array.from({ length: 9 }, (_, index) => makeThread(room, "$thread" + index));
+        const pending: ((value: { chunk: IEvent[] }) => void)[] = [];
+        vi.mocked(client.fetchRelations).mockImplementation((_room, root) =>
+            root === "$board" ? Promise.resolve({ chunk: events }) : new Promise((resolve) => pending.push(resolve)),
+        );
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vi.waitFor(() => expect(pending).toHaveLength(4));
+        pending.slice(0, 4).forEach((resolve) => resolve({ chunk: [] }));
+        await vi.waitFor(() => expect(pending).toHaveLength(8));
+        pending.slice(4, 8).forEach((resolve) => resolve({ chunk: [] }));
+        await vi.waitFor(() => expect(pending).toHaveLength(9));
+        pending[8]({ chunk: [] });
+        await vi.waitFor(() => expect(vm!.getSnapshot().loading).toBe(false));
+        expect(
+            vm
+                .getSnapshot()
+                .cards.filter((card) => card.threadId)
+                .map((card) => card.threadId),
+        ).toEqual(threads.map((thread) => thread.getId()));
+    });
+
+    it("projects one stable card per native thread without writing and preserves manual cards", async () => {
+        makeThread();
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        const card = vm.getSnapshot().cards.find((item) => item.threadId)!;
+        expect(card).toMatchObject({ title: "Release planning", column: "todo", archived: false });
+        expect(card.id).toMatch(/^thread-[a-f0-9]{64}$/);
+        expect(vm.getSnapshot().cards.find((item) => item.id === "one")?.title).toBe("Plan release");
+        await vm.reload();
+        expect(vm.getSnapshot().cards.filter((item) => item.threadId)).toEqual([card]);
+        expect(client.sendEvent).not.toHaveBeenCalled();
+    });
+
+    it("retains duplicate legacy card details under one canonical thread card", async () => {
+        makeThread();
+        events = [
+            revision("latest", "New card name", { thread_id: "$thread", description: "Current details" }),
+            revision("earlier", "Old card name", {
+                thread_id: "$thread",
+                description: "Do not lose this",
+                column: "done",
+                archived: true,
+            }),
+            revision("manual", "Standalone earlier card"),
+        ];
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toHaveLength(2);
+        expect(vm.getSnapshot().cards.find((card) => card.threadId)).toMatchObject({
+            id: "latest",
+            title: "Release planning",
+            description: "Current details",
+            earlierCards: [
+                {
+                    id: "earlier",
+                    title: "Old card name",
+                    description: "Do not lose this",
+                    column: "done",
+                    archived: true,
+                },
+            ],
+        });
+        expect(client.sendEvent).not.toHaveBeenCalled();
+    });
+
+    it("reflects shared thread rename and archive metadata in Personal and room boards", async () => {
+        makeThread();
+        events.unshift({
+            sender: client.getSafeUserId(),
+            origin_server_ts: 3,
+            unsigned: {},
+            room_id: room.roomId,
+            event_id: "$metadata",
+            type: THREAD_METADATA_EVENT,
+            content: {
+                "version": 1,
+                "name": "Renamed discussion",
+                "archived": true,
+                "m.relates_to": { rel_type: RelationType.Reference, event_id: "$thread" },
+            },
+        });
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards.find((card) => card.threadId)).toMatchObject({
+            title: "Renamed discussion",
+            archived: true,
+            roomId: room.roomId,
+        });
+    });
+
+    it("saves validated deadlines and rejects impossible local dates without creating a thread", async () => {
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        vm.edit();
+        vm.setTitle("Deadline task");
+        vm.setDueAt("2026-02-31T10:00");
+        await vm.save();
+        expect(createNamedThread).not.toHaveBeenCalled();
+        expect(vm.getSnapshot().error).toBeDefined();
+        vm.setDueAt("2027-03-10T10:30");
+        await vm.save();
+        expect(createNamedThread).toHaveBeenCalledWith(client, room, "Deadline task");
+        const card = vm.getSnapshot().cards.find((item) => item.threadId)!;
+        expect(card.dueAt).toBe(new Date("2027-03-10T10:30").getTime());
+        expect(client.sendEvent).toHaveBeenLastCalledWith(
+            room.roomId,
+            KANBAN_CARD_EVENT,
+            expect.objectContaining({ due_at: card.dueAt }),
+        );
+        vm.edit(card);
+        vm.setDueAt("");
+        await vm.save();
+        expect(vm.getSnapshot().cards.find((item) => item.id === card.id)?.dueAt).toBeUndefined();
+    });
+
+    it("does not create a second thread when its card revision must be retried", async () => {
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        vm.edit();
+        vm.setTitle("Keep this discussion");
+        const send = vi.mocked(client.sendEvent).getMockImplementation()!;
+        vi.mocked(client.sendEvent).mockRejectedValueOnce(new Error("offline"));
+        await vm.save();
+        expect(vm.getSnapshot().editor?.threadId).toBeDefined();
+        vi.mocked(client.sendEvent).mockImplementation(send);
+        await vm.save();
+        expect(createNamedThread).toHaveBeenCalledOnce();
+        expect(vm.getSnapshot().cards.filter((card) => card.threadId)).toHaveLength(1);
+    });
+
+    it("prefills reminder context and records only successful command requests", async () => {
+        makeThread();
+        const due = new Date("2027-03-10T10:30").getTime();
+        events = [revision("one", "Linked", { thread_id: "$thread", due_at: due })];
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client, reminderBot: "@bot:server" });
+        await vm.reload();
+        let card = vm.getSnapshot().cards[0];
+        await vm.remind(card);
+        expect(scheduleRoomReminder).toHaveBeenCalledWith(client, room, "@bot:server", {
+            message: "Release planning",
+            at: due,
+            threadId: "$thread",
+        });
+        expect(client.sendEvent).not.toHaveBeenCalled();
+        vi.mocked(scheduleRoomReminder).mockResolvedValue({
+            status: "requested",
+            eventId: "$reminder",
+            at: due,
+            message: "Release planning",
+            threadId: "$thread",
+        });
+        await vm.remind(card);
+        card = vm.getSnapshot().cards[0];
+        expect(card.reminderRequested).toEqual({ eventId: "$reminder", at: due });
+        expect(client.sendEvent).toHaveBeenLastCalledWith(
+            room.roomId,
+            KANBAN_CARD_EVENT,
+            expect.objectContaining({ reminder_requested: { event_id: "$reminder", at: due } }),
+        );
+    });
+    it("queues one follow-up refresh for a live revision received while history is loading", async () => {
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        vi.useFakeTimers();
+        let finish!: (value: { chunk: IEvent[] }) => void;
+        vi.mocked(client.fetchRelations)
+            .mockClear()
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finish = resolve;
+                    }),
             );
-        },
-    );
+        const refresh = vm.reload();
+        events = [revision("one", "Arrived during history")];
+        client.emit(ClientEvent.Event, new MatrixEvent(events[0]));
+        finish({ chunk: [revision("one", "Older snapshot")] });
+        await refresh;
+        expect(vm.getSnapshot().cards[0].title).toBe("Older snapshot");
+        await vi.advanceTimersByTimeAsync(301);
+        expect(vm.getSnapshot().cards[0].title).toBe("Arrived during history");
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).toHaveBeenCalledTimes(2);
+    });
+
+    it("preserves a legacy linked-card archive until an explicit thread restore arrives", async () => {
+        makeThread();
+        events = [revision("one", "Keep archived", { thread_id: "$thread", archived: true })];
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards[0].archived).toBe(true);
+        events.unshift({
+            sender: client.getSafeUserId(),
+            origin_server_ts: 3,
+            unsigned: {},
+            room_id: room.roomId,
+            event_id: "$restore",
+            type: THREAD_METADATA_EVENT,
+            content: {
+                "version": 1,
+                "archived": false,
+                "m.relates_to": { rel_type: RelationType.Reference, event_id: "$thread" },
+            },
+        });
+        await vm.reload();
+        expect(vm.getSnapshot().cards[0].archived).toBe(false);
+        expect(client.sendEvent).not.toHaveBeenCalled();
+    });
+
+    it("projects member-created threads across joined boards without state-write permission", async () => {
+        const second = makeRoom("!second:server");
+        makeThread(room, "$first");
+        makeThread(second, "$second");
+        vi.mocked(room.currentState.maySendStateEvent).mockReturnValue(false);
+        vi.mocked(second.currentState.maySendStateEvent).mockReturnValue(false);
+        vi.mocked(client.getRooms).mockReturnValue([room, second]);
+        vi.mocked(client.getRoom).mockImplementation(
+            (id) => [room, second].find((source) => source.roomId === id) ?? null,
+        );
+        events = [];
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards.map((card) => [card.roomId, card.threadId])).toEqual([
+            [room.roomId, "$first"],
+            [second.roomId, "$second"],
+        ]);
+        expect(client.sendEvent).not.toHaveBeenCalled();
+        expect(client.sendStateEvent).not.toHaveBeenCalled();
+    });
+
+    it("never paginates native thread history for a room without an initialized board", async () => {
+        const unboarded = makeRoom("!unboarded:server");
+        vi.spyOn(unboarded.currentState, "getStateEvents").mockReturnValue(null);
+        Object.defineProperty(unboarded, "threadsTimelineSets", {
+            value: [{ getLiveTimeline: () => ({ getPaginationToken: () => "older" }) }],
+        });
+        vi.mocked(client.getRooms).mockReturnValue([room, unboarded]);
+        vi.mocked(client.getRoom).mockImplementation(
+            (id) => [room, unboarded].find((source) => source.roomId === id) ?? null,
+        );
+        const paginate = vi.spyOn(client, "paginateEventTimeline").mockResolvedValue(false);
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().hasMore).toBe(false);
+        await vm.loadMore();
+        expect(paginate).not.toHaveBeenCalled();
+    });
 });

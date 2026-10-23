@@ -41,6 +41,7 @@ describe("RoomThreadTabsViewModel", () => {
     let threads: Thread[];
     let vm: RoomThreadTabsViewModel;
     const onBoardChange = vi.fn();
+    const onOpenDocs = vi.fn();
     const panel = Object.assign(new EventEmitter(), {
         currentCardForRoom: vi.fn(),
         isOpenForRoom: vi.fn(),
@@ -94,6 +95,7 @@ describe("RoomThreadTabsViewModel", () => {
             client,
             rightPanelStore: panel as unknown as RightPanelStore,
             onBoardChange,
+            onOpenDocs,
             reminderBot: "@reminder:server",
         });
         await vi.waitFor(() => expect(vm.getSnapshot().threads[0]?.canManage).toBe(true));
@@ -106,6 +108,11 @@ describe("RoomThreadTabsViewModel", () => {
     });
 
     it("loads titles and switches between native thread, General, history and a linked board", async () => {
+        vm.openDocs();
+        expect(onOpenDocs).toHaveBeenCalledOnce();
+        vm.setDocs(true);
+        expect(vm.getSnapshot().docs).toBe(true);
+        vm.setDocs(false);
         expect(vm.getSnapshot()).toMatchObject({
             selectedId: "$root",
             canCreate: true,
@@ -302,12 +309,12 @@ describe("RoomThreadTabsViewModel", () => {
     });
 
     it("prevents duplicate reminder dialogs and releases its listeners", async () => {
-        const pending = Promise.withResolvers<void>();
+        const pending = Promise.withResolvers<Awaited<ReturnType<typeof reminders.scheduleRoomReminder>>>();
         const schedule = vi.spyOn(reminders, "scheduleRoomReminder").mockReturnValue(pending.promise);
         const first = vm.setReminder();
         await vm.setReminder();
         expect(schedule).toHaveBeenCalledTimes(1);
-        pending.resolve();
+        pending.resolve(undefined);
         await first;
         expect(vm.getSnapshot().busy).toBe(false);
         vm.dispose();

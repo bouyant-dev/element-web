@@ -120,6 +120,45 @@ void test("uses the message timestamp and rejects commands whose due time alread
     assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM reminders").get()?.n, 1);
 });
 
+void test("persists an exact UTC deadline across restart and keeps relative commands compatible", async (t) => {
+    const f = await fixture(t);
+    const at = f.now + 90_123;
+    const event = f.event(`!remind at ${new Date(at).toISOString()} Exact deadline`);
+    await f.service.handleMessage(ROOM, event);
+    assert.equal(f.db.prepare("SELECT due_at FROM reminders").get()?.due_at, at);
+    await f.restart();
+    await f.service.handleMessage(ROOM, event);
+    await f.service.handleMessage(ROOM, f.event("!remind 2m Relative still works"));
+    await f.service.tick();
+    assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM reminders").get()?.n, 2);
+    assert.match(f.sent[0].content.body, new RegExp(new Date(at).toISOString().replaceAll(".", "\\.")));
+    f.advance(90_123);
+    await f.restart();
+    await f.service.tick();
+    assert.equal(f.sent.at(-1)?.content.body, `Reminder for ${USER}: Exact deadline`);
+    assert.equal(f.sent.at(-1)?.room, ROOM);
+    assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM reminders WHERE status = 'sent'").get()?.n, 1);
+});
+
+void test("accepts UTC seconds and rejects ambiguous, normalized, past and excessive exact dates", async (t) => {
+    const f = await fixture(t);
+    const valid = new Date(f.now + 60_000).toISOString().replace(".000Z", "Z");
+    await f.service.handleMessage(ROOM, f.event(`!remind at ${valid} Whole seconds`));
+    for (const iso of [
+        "2027-02-30T09:00:00Z",
+        "2027-01-01T24:00:00Z",
+        "2027-01-01T09:00:00",
+        "2027-01-01T09:00:00+07:00",
+        "tomorrow",
+        new Date(f.now - 1).toISOString(),
+        new Date(f.now + 366 * 86400_000).toISOString(),
+    ])
+        await f.service.handleMessage(ROOM, f.event(`!remind at ${iso} Invalid`));
+    await f.service.handleMessage(ROOM, f.event(`!remind at ${valid} ${"x".repeat(2001)}`));
+    assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM reminders").get()?.n, 1);
+    assert.equal(f.db.prepare("SELECT due_at FROM reminders").get()?.due_at, f.now + 60_000);
+});
+
 void test("rejects old room history, unknown rooms, self messages, edits, and mismatched routing", async (t) => {
     const f = await fixture(t);
     await f.service.handleMessage(ROOM, f.event("!remind 1h history", { origin_server_ts: f.now - 1 }));

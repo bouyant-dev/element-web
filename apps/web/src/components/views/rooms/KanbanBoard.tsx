@@ -12,6 +12,7 @@ import { KanbanBoardView, useCreateAutoDisposedViewModel } from "@element-hq/web
 import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
 import { KanbanBoardViewModel } from "../../../viewmodels/room/KanbanBoardViewModel";
 import { SDKContext } from "../../../contexts/SDKContext";
+import SdkConfig from "../../../SdkConfig";
 
 /** Connect a room board, or the current joined-room recap, to Matrix. */
 export function KanbanBoard({
@@ -26,7 +27,15 @@ export function KanbanBoard({
     const client = useMatrixClientContext();
     const { rightPanelStore } = useContext(SDKContext);
     const vm = useCreateAutoDisposedViewModel(
-        () => new KanbanBoardViewModel({ room, client, onOpenRoom, rightPanelStore, initialThreadId }),
+        () =>
+            new KanbanBoardViewModel({
+                room,
+                client,
+                onOpenRoom,
+                rightPanelStore,
+                initialThreadId,
+                reminderBot: SdkConfig.get("matcha_reminder_bot"),
+            }),
     );
     return <KanbanBoardView vm={vm} />;
 }

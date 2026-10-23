@@ -15,6 +15,7 @@ Invite the bot to a room from an allowed account, wait until it joins, then send
 ```text
 !remind 10m Check the build
 !remind 2h Review the Kanban board
+!remind at 2026-12-01T09:00:00.000Z Review the release
 !remind list
 !remind cancel r-0123456789abcdef
 ```
@@ -27,7 +28,12 @@ same user in one room within a minute are ignored. Lists and cancellation apply
 only to the requester in that room; moderators cannot cancel another user's
 reminder. The list shows the next 20 reminders, with UTC timestamps.
 
-The due time is based on the original Matrix message timestamp. An unprocessed
+Relative due times are based on the original Matrix message timestamp. Exact
+times use `!remind at <UTC ISO timestamp> <message>`; seconds are required and
+three millisecond digits are optional. Invalid dates, timezone-free strings,
+past times and times over 365 days from the command are rejected. Element's
+date picker converts the user's local time to this explicit UTC format. Both
+forms use the existing durable schedule and cancellation records. An unprocessed
 command whose due time has passed is rejected with a notice. Already accepted
 reminders that become overdue during downtime are delivered after restart.
 Old room history and rooms not admitted through an allowed invitation cannot

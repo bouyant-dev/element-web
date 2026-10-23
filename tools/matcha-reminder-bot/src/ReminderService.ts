@@ -28,7 +28,8 @@ export interface MessageContent {
 export type SendMessage = (roomId: string, content: MessageContent, transactionId: string) => Promise<string>;
 
 const MAX_DELAY = 365 * 24 * 60 * 60 * 1000;
-const USAGE = "Use !remind 10m Message, !remind list, or !remind cancel <id>. Delays: s, m, h, d; maximum 365 days.";
+const USAGE =
+    "Use !remind 10m Message, !remind at 2026-12-01T09:00:00.000Z Message, !remind list, or !remind cancel <id>. Delays: s, m, h, d; maximum 365 days. Exact times require UTC ISO format.";
 
 function hash(value: string): string {
     return createHash("sha256").update(value).digest("hex");
@@ -184,18 +185,33 @@ export class ReminderService {
         }
 
         const create = /^!remind\s+([1-9][0-9]{0,8})([smhd])\s+([\s\S]+)$/i.exec(body);
-        if (!create) return USAGE;
-        const text = create[3].trim();
+        const exact = /^!remind\s+at\s+(\S+)\s+([\s\S]+)$/i.exec(body);
+        if (!create && !exact) return USAGE;
+        const text = (create?.[3] ?? exact![2]).trim();
         if (text.length === 0 || text.length > 2000) return "A reminder must contain between 1 and 2,000 characters.";
         const units: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
-        const delay = Number(create[1]) * units[create[2].toLowerCase()];
-        if (delay > MAX_DELAY) return "The longest reminder delay is 365 days.";
         if (!Number.isSafeInteger(timestamp) || Number(timestamp) <= 0 || Number(timestamp) > this.now() + 300_000) {
             return "This command has an invalid message timestamp. Send a new reminder.";
         }
-        const dueAt = Number(timestamp) + delay;
+        let dueAt: number;
+        if (exact) {
+            const iso = exact[1];
+            const parsed = Date.parse(iso);
+            const canonical = iso.length === 20 ? iso.slice(0, -1) + ".000Z" : iso;
+            if (
+                !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(iso) ||
+                !Number.isSafeInteger(parsed) ||
+                new Date(parsed).toISOString() !== canonical
+            ) {
+                return "Use a valid UTC ISO date and time, for example 2026-12-01T09:00:00.000Z.";
+            }
+            dueAt = parsed;
+        } else {
+            dueAt = Number(timestamp) + Number(create![1]) * units[create![2].toLowerCase()];
+        }
+        if (dueAt - Number(timestamp) > MAX_DELAY) return "The longest reminder delay is 365 days.";
         if (dueAt <= this.now())
-            return "That reminder time has already passed. Send a new reminder with a future delay.";
+            return "That reminder time has already passed. Send a new reminder with a future time.";
         const counts = this.db
             .prepare(`
             SELECT COUNT(*) AS total,
