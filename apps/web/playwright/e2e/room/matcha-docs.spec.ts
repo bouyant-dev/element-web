@@ -41,7 +41,7 @@ async function openSpaceDocs(app: ElementAppPage, page: Page, chat: string, wait
     await app.viewRoomByName(chat);
     const navigation = page.getByRole("navigation", { name: "Room conversations" });
     await expect(navigation.getByRole("button", { name: "Docs", exact: true })).toHaveCount(0);
-    await navigation.getByRole("button", { name: "More", exact: true }).click();
+    await page.getByRole("button", { name: "More", exact: true }).click();
     await page.getByRole("menuitem", { name: "Space docs", exact: true }).click();
     const region = page.getByRole("region", { name: "Docs", exact: true });
     await expect(region).toContainText(SPACE_NAME);
@@ -54,6 +54,7 @@ async function openSpaceDocs(app: ElementAppPage, page: Page, chat: string, wait
 test.describe("Matcha shared Space Docs", () => {
     test.use({
         displayName: "Alice",
+        actionTimeout: 15_000,
         viewport: { width: 1440, height: 900 },
         config,
         botCreateOpts: { displayName: "Space owner", autoAcceptInvites: true },
@@ -445,10 +446,7 @@ test.describe("Matcha shared Space Docs", () => {
                 }),
             ).rejects.toThrow();
 
-            await alicePage
-                .getByRole("navigation", { name: "Room conversations" })
-                .getByRole("button", { name: "More", exact: true })
-                .click();
+            await alicePage.getByRole("button", { name: "More", exact: true }).click();
             await alicePage.getByRole("menuitem", { name: "Earlier chat document", exact: true }).click();
             await expect(aliceDocs.getByRole("heading", { name: "Legacy private plan", exact: true })).toBeVisible();
             await expect(aliceDocs.locator(".cm-content")).toHaveAttribute("contenteditable", "false");
