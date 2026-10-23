@@ -107,7 +107,7 @@ jobs:
 
             - name: Exercise thread tabs in a browser
               run: |
-                  pnpm --dir apps/web test:playwright -- \
+                  pnpm --dir apps/web exec playwright test \
                     playwright/e2e/threads/matcha-thread-tabs.spec.ts --project=Chrome
 
             - name: Build the runtime image
