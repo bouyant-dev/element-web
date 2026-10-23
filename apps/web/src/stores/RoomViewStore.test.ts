@@ -440,6 +440,16 @@ describe("RoomViewStore", function () {
         };
         await roomViewStore.viewRoom(payload);
         expect(roomViewStore.isViewingSpaceDocs()).toBe(true);
+        expect(roomViewStore.getSpaceDocumentId()).toBe("main");
+        const documentId = "11111111-1111-4111-8111-111111111111";
+        await roomViewStore.viewRoom({ ...payload, matcha_space_doc: documentId });
+        expect(roomViewStore.getSpaceDocumentId()).toBe(documentId);
+        for (const invalidId of ["catalog", "../private", "x".repeat(500)]) {
+            await roomViewStore.viewRoom({ ...payload, matcha_space_doc: invalidId });
+            expect(roomViewStore.getSpaceDocumentId()).toBe("main");
+        }
+        await roomViewStore.viewRoom({ ...payload, matcha_space_doc: documentId, matcha_space_docs: false });
+        expect(roomViewStore.getSpaceDocumentId()).toBe("main");
         await roomViewStore.viewRoom({ ...payload, matcha_space_docs: false });
         expect(roomViewStore.isViewingSpaceDocs()).toBe(false);
         await roomViewStore.viewRoom(payload);

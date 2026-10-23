@@ -25,6 +25,9 @@ const {
     Default,
     SpaceChats,
     SpaceDocs,
+    SpaceDocsLoading,
+    SpaceDocsError,
+    SpaceDocsEmpty,
     Loading,
     Empty,
     EmptyWithoutCreatePermission,
@@ -73,11 +76,54 @@ describe("<RoomListView />", () => {
         expect(openSpaceContent).toHaveBeenCalledWith("chats");
     });
 
-    it("marks Docs active without hiding the chat list", () => {
-        renderWithMockContext(<SpaceDocs />);
+    it("replaces conversations and chat filters with saved documents", async () => {
+        const user = userEvent.setup();
+        const openSpaceDocument = fn();
+        const createSpaceDocument = fn();
+        const renameSpaceDocument = fn();
+        renderWithMockContext(
+            <SpaceDocs
+                openSpaceDocument={openSpaceDocument}
+                createSpaceDocument={createSpaceDocument}
+                renameSpaceDocument={renameSpaceDocument}
+            />,
+        );
         expect(screen.getByRole("button", { name: "Docs" })).toHaveAttribute("aria-current", "page");
         expect(screen.getByRole("button", { name: "Chats" })).not.toHaveAttribute("aria-current");
-        expect(screen.getByRole("listbox", { name: "Room list" })).toBeVisible();
+        expect(screen.queryByRole("listbox", { name: "Room list" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("option", { name: "Unread" })).not.toBeInTheDocument();
+        expect(screen.getByRole("region", { name: "Saved documents" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "Project plan" })).toHaveAttribute("aria-current", "page");
+        await user.click(screen.getByRole("button", { name: "Team decisions" }));
+        expect(openSpaceDocument).toHaveBeenCalledWith("decisions");
+        await user.click(screen.getByRole("button", { name: "New document" }));
+        expect(createSpaceDocument).toHaveBeenCalledOnce();
+        await user.click(screen.getByRole("button", { name: "Rename Project plan" }));
+        expect(renameSpaceDocument).toHaveBeenCalledWith("project");
+    });
+
+    it("shows loading without exposing create or rename actions", () => {
+        renderWithMockContext(<SpaceDocsLoading />);
+        expect(screen.getByRole("status").textContent).toContain("Loading documents");
+        expect(screen.getByRole("button", { name: "New document" })).toHaveAttribute("aria-disabled", "true");
+        expect(screen.queryByRole("button", { name: /^Rename / })).not.toBeInTheDocument();
+    });
+
+    it("keeps readable document titles while offering retry after a catalog error", async () => {
+        const user = userEvent.setup();
+        const retrySpaceDocuments = fn();
+        renderWithMockContext(<SpaceDocsError retrySpaceDocuments={retrySpaceDocuments} />);
+        expect(screen.getByRole("alert").textContent).toContain("could not be decrypted");
+        expect(screen.getByRole("button", { name: "Project plan" })).toBeVisible();
+        expect(screen.getByRole("button", { name: "New document" })).toHaveAttribute("aria-disabled", "true");
+        await user.click(screen.getByRole("button", { name: "Retry" }));
+        expect(retrySpaceDocuments).toHaveBeenCalledOnce();
+    });
+
+    it("shows an empty document list without displaying chat placeholders", () => {
+        renderWithMockContext(<SpaceDocsEmpty />);
+        expect(screen.getByText("No saved documents yet.")).toBeVisible();
+        expect(screen.queryByRole("listbox", { name: "Room list" })).not.toBeInTheDocument();
     });
 
     it("does not show Space navigation outside a Space", () => {

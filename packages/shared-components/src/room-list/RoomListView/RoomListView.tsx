@@ -6,8 +6,8 @@
  */
 
 import React, { type JSX, type ReactNode } from "react";
-import { Button } from "@vector-im/compound-web";
-import { ChatIcon, DocumentIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { Button, IconButton, Text } from "@vector-im/compound-web";
+import { ChatIcon, DocumentIcon, EditIcon, PlusIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import { useViewModel, type ViewModel } from "../../core/viewmodel";
 import { RoomListPrimaryFilters, type FilterId } from "../RoomListPrimaryFilters";
@@ -55,6 +55,16 @@ export type RoomListViewSnapshot = {
     isFlatList: boolean;
     /** Active content in a joined Space; absent outside a Space. */
     spaceContent?: "chats" | "docs";
+    /** Saved documents belonging to the selected Space only. */
+    spaceDocuments?: {
+        items: { id: string; name: string }[];
+        selectedId?: string;
+        loading: boolean;
+        sync?: "loading" | "saved" | "saving" | "offline" | "error";
+        canEdit: boolean;
+        busy: boolean;
+        error?: string;
+    };
     /**
      * The single toast to display (if any). The view model owns which toast wins when more
      * than one applies (e.g. a transient "chat_moved" event toast takes precedence over the
@@ -69,6 +79,14 @@ export type RoomListViewSnapshot = {
 export interface RoomListViewActions {
     /** Open the selected Space's chats or shared document. */
     openSpaceContent: (content: "chats" | "docs") => void;
+    /** Open one document from the selected Space's saved documents. */
+    openSpaceDocument: (id: string) => void;
+    /** Create and name a document in the selected Space. */
+    createSpaceDocument: () => Promise<void>;
+    /** Rename a document for all members of its Space. */
+    renameSpaceDocument: (id: string) => Promise<void>;
+    /** Retry loading or saving the document list. */
+    retrySpaceDocuments: () => Promise<void>;
     /** Called when a filter is toggled */
     onToggleFilter: (filterId: FilterId) => void;
     /** Called to create a new chat room */
@@ -137,7 +155,78 @@ export const RoomListView: React.FC<RoomListViewProps> = ({ vm, renderAvatar, on
     const snapshot = useViewModel(vm);
     let listBody: ReactNode;
 
-    if (snapshot.isLoadingRooms) {
+    if (snapshot.spaceContent === "docs") {
+        const documents = snapshot.spaceDocuments;
+        listBody = (
+            <section className={styles.documents} aria-label={_t("matcha_space_docs|document_list")}>
+                <Button
+                    className={styles.newDocument}
+                    kind="secondary"
+                    size="md"
+                    Icon={PlusIcon}
+                    disabled={!documents?.canEdit || documents.busy}
+                    onClick={() => void vm.createSpaceDocument()}
+                >
+                    {_t("matcha_space_docs|new_document")}
+                </Button>
+                {documents?.error && (
+                    <div className={styles.documentNotice} role="alert">
+                        <Text size="sm">{documents.error}</Text>
+                        <Button kind="tertiary" size="md" onClick={() => void vm.retrySpaceDocuments()}>
+                            {_t("action|retry")}
+                        </Button>
+                    </div>
+                )}
+                {documents?.sync && ["saving", "offline", "error"].includes(documents.sync) && (
+                    <Text size="sm" role="status" className={styles.documentNotice}>
+                        {documents.sync === "saving"
+                            ? _t("matcha_docs|saving")
+                            : documents.sync === "offline"
+                              ? _t("matcha_docs|offline")
+                              : _t("matcha_docs|unsaved")}
+                    </Text>
+                )}
+                {documents?.loading && (
+                    <Text size="sm" role="status" className={styles.documentNotice}>
+                        {_t("matcha_space_docs|catalog_loading")}
+                    </Text>
+                )}
+                {!documents?.loading && !documents?.error && !documents?.items.length && (
+                    <Text size="sm" className={styles.documentNotice}>
+                        {_t("matcha_space_docs|empty")}
+                    </Text>
+                )}
+                <ul className={styles.documentList}>
+                    {documents?.items.map((document) => (
+                        <li key={document.id} className={styles.documentRow}>
+                            <Button
+                                kind="tertiary"
+                                size="md"
+                                Icon={DocumentIcon}
+                                className={styles.documentLink}
+                                title={document.name}
+                                aria-current={document.id === documents.selectedId ? "page" : undefined}
+                                onClick={() => vm.openSpaceDocument(document.id)}
+                            >
+                                <span>{document.name}</span>
+                            </Button>
+                            {documents.canEdit && (
+                                <IconButton
+                                    className={styles.documentRename}
+                                    size="32px"
+                                    tooltip={_t("matcha_space_docs|rename_named_document", { name: document.name })}
+                                    disabled={documents.busy}
+                                    onClick={() => void vm.renameSpaceDocument(document.id)}
+                                >
+                                    <EditIcon />
+                                </IconButton>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            </section>
+        );
+    } else if (snapshot.isLoadingRooms) {
         listBody = <RoomListLoadingSkeleton />;
     } else if (snapshot.isRoomListEmpty) {
         listBody = <RoomListEmptyStateView vm={vm} />;
@@ -147,7 +236,7 @@ export const RoomListView: React.FC<RoomListViewProps> = ({ vm, renderAvatar, on
 
     return (
         <>
-            <div>
+            <div hidden={snapshot.spaceContent === "docs"}>
                 <RoomListPrimaryFilters
                     filterIds={snapshot.filterIds}
                     activeFilterId={snapshot.activeFilterId}
@@ -179,7 +268,7 @@ export const RoomListView: React.FC<RoomListViewProps> = ({ vm, renderAvatar, on
             <Flex direction="column" className={styles.list}>
                 <AutoHideScrollbar className={styles.scrollbar}>
                     {listBody}
-                    {snapshot.toast && (
+                    {snapshot.spaceContent !== "docs" && snapshot.toast && (
                         <RoomListToast
                             type={snapshot.toast}
                             onClose={vm.closeToast}

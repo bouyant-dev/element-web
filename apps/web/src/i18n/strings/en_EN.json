@@ -1731,8 +1731,16 @@
         "waiting": "The invitation is pending. Once the bot joins, choose Set reminder again. Only authorised inviters can add the bot."
     },
     "matcha_space_docs": {
-        "confirm": "Enable encrypted Docs for %(space)s? All Space members can read and edit it and send encrypted content in this Space. Encryption is permanent. Chat permissions and chat encryption stay the same.",
+        "confirm": "Enable encrypted Docs for %(space)s? All Space members can read and edit the documents and send encrypted content in this Space. Encryption is permanent. Chat permissions and chat encryption stay the same.",
+        "create_error": "Could not create the document. Please try again.",
+        "default_name": "Space notes",
+        "document_name": "Document name",
         "enable": "Enable encrypted Docs",
+        "invalid_name": "Use a name between 1 and 100 characters.",
+        "new_document": "New document",
+        "not_found": "This document was not found in this space. Choose a saved document from the list.",
+        "rename_document": "Rename document",
+        "rename_error": "Could not rename the document. Please try again.",
         "setup_error": "Setup is incomplete. Encryption may already be enabled and cannot be turned off. Check your connection and Space permissions, then try again."
     },
     "matcha_threads": {

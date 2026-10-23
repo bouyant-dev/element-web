@@ -27,6 +27,17 @@ const initial: RoomDocsSnapshot = {
 };
 
 describe("RoomDocsView", () => {
+    it("shows the selected document name and containing space", () => {
+        render(
+            <RoomDocsView
+                vm={new TestViewModel({ ...initial, documentName: "Release checklist" })}
+                editor={<textarea />}
+                onDownload={vi.fn()}
+            />,
+        );
+        expect(screen.getByRole("heading", { name: "Release checklist" })).toBeVisible();
+        expect(screen.getByText(/Product studio/)).toBeVisible();
+    });
     it("keeps the editor mounted while switching to the document preview", async () => {
         const vm = new TestViewModel(initial);
         const download = vi.fn();

@@ -33,6 +33,10 @@ const mockFilterIds: FilterId[] = ["unread", "people", "rooms"];
 // Wrapper component that creates a mocked ViewModel
 const RoomListViewWrapperImpl = ({
     openSpaceContent,
+    openSpaceDocument,
+    createSpaceDocument,
+    renameSpaceDocument,
+    retrySpaceDocuments,
     onToggleFilter,
     createChatRoom,
     createRoom,
@@ -52,6 +56,10 @@ const RoomListViewWrapperImpl = ({
 }: RoomListViewProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
         openSpaceContent,
+        openSpaceDocument,
+        createSpaceDocument,
+        renameSpaceDocument,
+        retrySpaceDocuments,
         onToggleFilter,
         createChatRoom,
         createRoom,
@@ -109,6 +117,10 @@ const meta = {
         canCreateRoom: true,
         // Action properties (callbacks)
         openSpaceContent: fn(),
+        openSpaceDocument: fn(),
+        createSpaceDocument: fn(),
+        renameSpaceDocument: fn(),
+        retrySpaceDocuments: fn(),
         onToggleFilter: fn(),
         createChatRoom: fn(),
         createRoom: fn(),
@@ -301,4 +313,44 @@ export const ToastOverStickySection: Story = {
 };
 
 export const SpaceChats: Story = { args: { spaceContent: "chats" } };
-export const SpaceDocs: Story = { args: { spaceContent: "docs" } };
+export const SpaceDocs: Story = {
+    args: {
+        spaceContent: "docs",
+        spaceDocuments: {
+            items: [
+                { id: "main", name: "Space notes" },
+                { id: "project", name: "Project plan" },
+                { id: "decisions", name: "Team decisions" },
+            ],
+            selectedId: "project",
+            loading: false,
+            canEdit: true,
+            busy: false,
+        },
+    },
+};
+
+export const SpaceDocsLoading: Story = {
+    args: {
+        ...SpaceDocs.args,
+        spaceDocuments: { items: [], loading: true, canEdit: false, busy: false },
+    },
+};
+
+export const SpaceDocsError: Story = {
+    args: {
+        ...SpaceDocs.args,
+        spaceDocuments: {
+            ...SpaceDocs.args!.spaceDocuments!,
+            canEdit: false,
+            error: "Some documents could not be decrypted. Restore your keys or retry.",
+        },
+    },
+};
+
+export const SpaceDocsEmpty: Story = {
+    args: {
+        ...SpaceDocs.args,
+        spaceDocuments: { items: [], loading: false, canEdit: true, busy: false },
+    },
+};

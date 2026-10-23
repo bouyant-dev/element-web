@@ -86,6 +86,7 @@ interface IProps {
     permalinkCreator: RoomPermalinkCreator;
     /** Controlled by the room route and the room-list Chats/Docs toggle. */
     docs?: boolean;
+    documentId?: string;
     onJoinButtonClicked(): void;
     onRejectButtonClicked(): void;
 }
@@ -686,7 +687,11 @@ export default class SpaceRoomView extends React.PureComponent<IProps, IState> {
                             <div className="mx_SpaceRoomView_content">
                                 <div className="mx_SpaceRoomView_contentBody">
                                     {this.props.docs ? (
-                                        <SpaceDocs key={this.props.space.roomId} space={this.props.space} />
+                                        <SpaceDocs
+                                            key={this.props.space.roomId}
+                                            space={this.props.space}
+                                            documentId={this.props.documentId}
+                                        />
                                     ) : (
                                         <SpaceLanding space={this.props.space} />
                                     )}

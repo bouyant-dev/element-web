@@ -29,6 +29,10 @@ type RoomListStoryProps = RoomListViewSnapshot &
 // Wrapper component that creates a mocked ViewModel
 const RoomListWrapperImpl = ({
     openSpaceContent,
+    openSpaceDocument,
+    createSpaceDocument,
+    renameSpaceDocument,
+    retrySpaceDocuments,
     onToggleFilter,
     createChatRoom,
     createRoom,
@@ -48,6 +52,10 @@ const RoomListWrapperImpl = ({
 }: RoomListStoryProps): JSX.Element => {
     const vm = useMockedViewModel(rest, {
         openSpaceContent,
+        openSpaceDocument,
+        createSpaceDocument,
+        renameSpaceDocument,
+        retrySpaceDocuments,
         onToggleFilter,
         createChatRoom,
         createRoom,
@@ -93,6 +101,10 @@ const meta = {
         roomListState: defaultRoomListState,
         canCreateRoom: true,
         openSpaceContent: fn(),
+        openSpaceDocument: fn(),
+        createSpaceDocument: fn(),
+        renameSpaceDocument: fn(),
+        retrySpaceDocuments: fn(),
         onToggleFilter: fn(),
         createChatRoom: fn(),
         createRoom: fn(),

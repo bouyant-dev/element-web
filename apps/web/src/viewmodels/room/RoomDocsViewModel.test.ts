@@ -14,6 +14,7 @@ import { stubClient } from "test-utils";
 
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { RoomDocsViewModel } from "./RoomDocsViewModel";
+import { SpaceDocumentCatalog } from "../../utils/matcha/documentCatalog";
 
 describe("RoomDocsViewModel", () => {
     let client: MatrixClient;
@@ -75,6 +76,45 @@ describe("RoomDocsViewModel", () => {
         vi.mocked(client.sendEvent).mockResolvedValue({ event_id: "$recovered" });
         await vm.retry();
         expect(vm.getSnapshot()).toMatchObject({ sync: "saved", pendingUpdates: 0 });
+    });
+
+    it("opens isolated named documents and follows shared renames", async () => {
+        vm.dispose();
+        vi.spyOn(room, "isSpaceRoom").mockReturnValue(true);
+        vi.spyOn(room, "hasEncryptionStateEvent").mockReturnValue(true);
+        vi.spyOn(client, "getCrypto").mockReturnValue({} as NonNullable<ReturnType<MatrixClient["getCrypto"]>>);
+        const catalog = new SpaceDocumentCatalog(client, room);
+        await catalog.retry();
+        const id = await catalog.create("Release plan");
+        vm = new RoomDocsViewModel({ client, room, documentId: id });
+        await vm.retry();
+        expect(vm.getSnapshot()).toMatchObject({ documentName: "Release plan", canEdit: true });
+        vm.getText().insert(0, "Only this document");
+        await vm.retry();
+        const original = new RoomDocsViewModel({ client, room });
+        try {
+            await original.retry();
+            expect(original.getMarkdown()).toBe("");
+            expect(original.getSnapshot().documentName).toBe("Space notes");
+            await catalog.rename(id, "Launch plan");
+            expect(vm.getSnapshot().documentName).toBe("Launch plan");
+            expect(vm.getMarkdown()).toBe("Only this document");
+        } finally {
+            original.dispose();
+            catalog.release();
+        }
+    });
+
+    it("does not allow an unknown document URL to create an unlisted document", async () => {
+        vm.dispose();
+        vi.spyOn(room, "isSpaceRoom").mockReturnValue(true);
+        vi.spyOn(room, "hasEncryptionStateEvent").mockReturnValue(true);
+        vi.spyOn(client, "getCrypto").mockReturnValue({} as NonNullable<ReturnType<MatrixClient["getCrypto"]>>);
+        vm = new RoomDocsViewModel({ client, room, documentId: "11111111-1111-4111-8111-111111111111" });
+        await vm.retry();
+        expect(vm.getSnapshot()).toMatchObject({ ready: false, canEdit: false, sync: "error" });
+        expect(vm.getSnapshot().error).toContain("not found");
+        expect(client.sendEvent).not.toHaveBeenCalled();
     });
 
     it("keeps earlier chat documents read-only and opens their preview without copying or sending", async () => {

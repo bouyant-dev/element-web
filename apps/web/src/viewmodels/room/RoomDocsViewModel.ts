@@ -12,15 +12,18 @@ import type * as Y from "yjs";
 import { getRoomDocumentSession, type RoomDocumentSession, type RoomDocError } from "../../utils/matcha/documents";
 import { renderMarkdown } from "../../utils/renderMarkdown";
 import { _t } from "../../languageHandler";
+import { SpaceDocumentCatalog } from "../../utils/matcha/documentCatalog";
 
 /** The existing authenticated Matrix client and the currently joined chat. */
 export interface RoomDocsProps {
     client: MatrixClient;
     room: Room;
     readOnly?: boolean;
+    documentId?: string;
 }
 
-function errorMessage(error?: RoomDocError): string | undefined {
+/** Shared recovery messages for document contents and the encrypted document list. */
+export function documentErrorMessage(error?: RoomDocError): string | undefined {
     switch (error) {
         case "load_error":
             return _t("matcha_docs|load_error");
@@ -44,6 +47,7 @@ function errorMessage(error?: RoomDocError): string | undefined {
 /** Bridges the shared Markdown editor/preview to the persistent in-memory room session. */
 export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsProps> implements RoomDocsActions {
     private readonly session: RoomDocumentSession;
+    private readonly catalog?: SpaceDocumentCatalog;
     public constructor(props: RoomDocsProps) {
         super(props, {
             roomName: props.room.name,
@@ -54,7 +58,15 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
             pendingUpdates: 0,
             html: "",
         });
-        this.session = getRoomDocumentSession(props.client, props.room);
+        this.session = getRoomDocumentSession(props.client, props.room, props.documentId ?? "main");
+        if (props.room.isSpaceRoom()) {
+            this.catalog = new SpaceDocumentCatalog(props.client, props.room);
+            this.catalog.addEventListener("change", this.publish);
+            this.disposables.track(() => {
+                this.catalog?.removeEventListener("change", this.publish);
+                this.catalog?.release();
+            });
+        }
         this.session.addEventListener("change", this.publish);
         this.disposables.track(() => {
             this.session.removeEventListener("change", this.publish);
@@ -66,11 +78,21 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
     private publish = (): void => {
         if (this.isDisposed) return;
         const state = this.session.getState();
+        const catalog = this.catalog?.getState();
+        const document = catalog?.documents.find(({ id }) => id === (this.props.documentId ?? "main"));
+        const missingDocument = catalog?.ready && !document;
+        const error =
+            documentErrorMessage(catalog?.error ?? state.error) ??
+            (missingDocument ? _t("matcha_space_docs|not_found") : undefined);
         this.snapshot.merge({
             ...state,
-            canEdit: state.canEdit && !this.props.readOnly,
+            ready: state.ready && (!catalog || (catalog.ready && !!document)),
+            canEdit: state.canEdit && !this.props.readOnly && (!catalog || (catalog.canEdit && !!document)),
+            sync: error ? "error" : catalog && catalog.sync !== "saved" ? catalog.sync : state.sync,
+            pendingUpdates: state.pendingUpdates + (catalog?.pendingUpdates ?? 0),
+            documentName: catalog ? (document?.title ?? _t("matcha_space_docs|default_name")) : undefined,
             roomName: this.props.room.name,
-            error: errorMessage(state.error),
+            error,
             html: this.getSnapshot().mode === "preview" ? renderMarkdown(this.getMarkdown()) : this.getSnapshot().html,
         });
     };
@@ -83,6 +105,7 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
         this.publish();
     };
     public retry = async (): Promise<void> => {
+        await this.catalog?.retry();
         await this.session.retry();
         await this.session.flush();
         this.publish();

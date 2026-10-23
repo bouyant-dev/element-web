@@ -16,6 +16,7 @@ import styles from "./RoomDocsView.module.css";
 /** Shared document state; the host sanitizes html before publishing it. */
 export interface RoomDocsSnapshot {
     roomName: string;
+    documentName?: string;
     mode: "edit" | "preview";
     ready: boolean;
     canEdit: boolean;
@@ -69,7 +70,7 @@ export function RoomDocsView({
             <header className={styles.header}>
                 <div>
                     <Heading as="h2" size="md">
-                        {_t("matcha_docs|title")}
+                        {state.documentName ?? _t("matcha_docs|title")}
                     </Heading>
                     <Text size="sm" className={styles.subtitle}>
                         {_t("matcha_docs|subtitle", { room: state.roomName })}

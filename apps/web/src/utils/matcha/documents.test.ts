@@ -30,6 +30,7 @@ import {
     canEditRoomDocument,
     documentFrames,
     getRoomDocumentSession,
+    isRoomDocumentId,
     type RoomDocFrame,
 } from "./documents";
 
@@ -316,5 +317,58 @@ describe("room document transport", () => {
         expect(session.getState()).toMatchObject({ canEdit: false, error: "permission_error", pendingUpdates: 1 });
         expect(session.text.toJSON()).toBe("Recover this");
         expect(client.sendEvent).not.toHaveBeenCalled();
+    });
+
+    it("keeps main wire-compatible and validates document IDs before opening or sending", () => {
+        const update = updateFor("Original document");
+        expect(documentFrames(update, anchor, "same")).toEqual(documentFrames(update, anchor, "same", "main"));
+        expect(isRoomDocumentId("main")).toBe(true);
+        expect(isRoomDocumentId("catalog")).toBe(false);
+        expect(isRoomDocumentId("not-a-document")).toBe(false);
+        expect(() => documentFrames(update, anchor, "same", "not-a-document")).toThrow("invalid_update");
+        expect(() => getRoomDocumentSession(client, room, "../main")).toThrow("invalid_update");
+    });
+
+    it("isolates history, live updates and pending sessions by document ID", async () => {
+        const id = "11111111-1111-4111-8111-111111111111";
+        const own = wire(documentFrames(updateFor("New document"), anchor, "same-update", id)[0]);
+        const main = wire(documentFrames(updateFor("Original document"), anchor, "same-update")[0]);
+        const catalog = wire(documentFrames(updateFor("Catalog only"), anchor, "same-update", "catalog")[0]);
+        vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [main, own, catalog] });
+        await session.retry();
+        const other = getRoomDocumentSession(client, room, id);
+        await other.retry();
+        expect(session.text.toJSON()).toBe("Original document");
+        expect(other.text.toJSON()).toBe("New document");
+        expect(getRoomDocumentSession(client, room, id)).toBe(other);
+        other.release();
+        const mainCached = getRoomDocumentSession(client, room);
+        await mainCached.retry();
+        expect(mainCached).not.toBe(other);
+        expect(mainCached.text.toJSON()).toBe("Original document");
+
+        client.emit(
+            RoomEvent.Timeline,
+            new MatrixEvent(wire(documentFrames(updateFor("Other live"), anchor, "live")[0])),
+            room,
+            false,
+            false,
+            {
+                timeline: room.getLiveTimeline(),
+                liveEvent: true,
+            },
+        );
+        await vi.waitFor(() => expect(session.text.toJSON()).toContain("Other live"));
+        expect(other.text.toJSON()).toBe("New document");
+        other.text.insert(other.text.length, " edited");
+        await other.flush();
+        expect(client.sendEvent).toHaveBeenCalledWith(
+            roomId,
+            ROOM_DOC_EVENT,
+            expect.objectContaining({ doc: id }),
+            expect.any(String),
+        );
+        other.release();
+        mainCached.release();
     });
 });

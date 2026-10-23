@@ -53,6 +53,22 @@ describe("onNewScreen", () => {
     });
 });
 
+describe("Space document history", () => {
+    it("keeps a Back entry when returning from a named document to the original document", () => {
+        Object.defineProperty(window, "location", {
+            value: {
+                hash: "#/room/!space:server?view=docs&doc=11111111-1111-4111-8111-111111111111",
+                replace: vi.fn(),
+                assign: vi.fn(),
+            },
+            writable: true,
+        });
+        onNewScreen("room/!space:server?view=docs");
+        expect(window.location.assign).toHaveBeenCalledWith("#/room/!space:server?view=docs");
+        expect(window.location.replace).not.toHaveBeenCalled();
+    });
+});
+
 describe("getInitialScreenAfterLogin", () => {
     beforeEach(() => {
         vi.spyOn(sessionStorage, "getItem").mockClear().mockReturnValue(null);

@@ -12,12 +12,19 @@ import {
     type RoomListViewActions,
     type RoomListViewState,
     type RoomListSection,
-    _t,
     type ToastType,
 } from "@element-hq/web-shared-components";
-import { Room, type MatrixClient, PendingEventOrdering, RoomType } from "matrix-js-sdk/src/matrix";
+import {
+    Room,
+    type MatrixClient,
+    PendingEventOrdering,
+    RoomType,
+    RoomStateEvent,
+    RoomEvent,
+} from "matrix-js-sdk/src/matrix";
 
 import { Action } from "../../dispatcher/actions";
+import { _t } from "../../languageHandler";
 import dispatcher from "../../dispatcher/dispatcher";
 import { type ViewRoomDeltaPayload } from "../../dispatcher/payloads/ViewRoomDeltaPayload";
 import { type ViewRoomPayload } from "../../dispatcher/payloads/ViewRoomPayload";
@@ -54,6 +61,10 @@ import { EffectiveMembership, getEffectiveMembership } from "../../utils/members
 import SdkConfig from "../../SdkConfig";
 import { spaceForRoomDocuments } from "../../utils/matcha/spaceDocuments";
 import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
+import Modal from "../../Modal";
+import TextInputDialog from "../../components/views/dialogs/TextInputDialog";
+import { SpaceDocumentCatalog, validSpaceDocumentName } from "../../utils/matcha/documentCatalog";
+import { documentErrorMessage } from "../room/RoomDocsViewModel";
 
 /**
  * Tracks the position of the active room within a specific section.
@@ -211,6 +222,11 @@ export class RoomListViewModel
      */
     private previewRoom?: Room;
 
+    private documentCatalog?: SpaceDocumentCatalog;
+    private documentSpace?: Room;
+    private documentActionBusy = false;
+    private documentActionError?: string;
+
     public constructor(props: RoomListViewModelProps) {
         const activeSpace = props.spaceStore.activeSpaceRoom;
 
@@ -293,6 +309,9 @@ export class RoomListViewModel
         // The summary of the open room arrives after the room has been opened
         this.disposables.trackListener(props.roomViewStore, UPDATE_EVENT, this.onRoomViewStoreUpdate);
         this.disposables.trackListener(props.spaceStore, UPDATE_SELECTED_SPACE, this.updateSpaceContent);
+        this.disposables.trackListener(props.client, RoomStateEvent.Events, this.updateSpaceContent);
+        this.disposables.trackListener(props.client, RoomEvent.MyMembership, this.updateSpaceContent);
+        this.disposables.track(() => this.releaseDocumentCatalog());
 
         // Track cleanup of all child view models
         this.disposables.track(() => {
@@ -321,11 +340,49 @@ export class RoomListViewModel
 
     private readonly updateSpaceContent = (): void => {
         const space = this.getDocumentSpace();
+        const spaceContent = space
+            ? this.props.roomViewStore.isViewingSpaceDocs() && this.props.roomViewStore.getRoomId() === space.roomId
+                ? "docs"
+                : "chats"
+            : undefined;
+        this.snapshot.merge({ spaceContent });
+        const documentSpace = spaceContent === "docs" ? space : undefined;
+        if (documentSpace !== this.documentSpace) {
+            this.releaseDocumentCatalog();
+            this.documentSpace = documentSpace;
+            this.documentActionError = undefined;
+            if (documentSpace) {
+                this.documentCatalog = new SpaceDocumentCatalog(this.props.client, documentSpace);
+                this.documentCatalog.addEventListener("change", this.publishDocuments);
+            }
+        }
+        this.publishDocuments();
+    };
+
+    private releaseDocumentCatalog(): void {
+        this.documentCatalog?.removeEventListener("change", this.publishDocuments);
+        this.documentCatalog?.release();
+        this.documentCatalog = undefined;
+        this.documentSpace = undefined;
+    }
+
+    private publishDocuments = (): void => {
+        if (this.isDisposed) return;
+        const state = this.documentCatalog?.getState();
         this.snapshot.merge({
-            spaceContent: space
-                ? this.props.roomViewStore.isViewingSpaceDocs() && this.props.roomViewStore.getRoomId() === space.roomId
-                    ? "docs"
-                    : "chats"
+            spaceDocuments: state
+                ? {
+                      items: state.documents.map((document) => ({
+                          id: document.id,
+                          name: document.title ?? _t("matcha_space_docs|default_name"),
+                      })),
+                      selectedId: this.props.roomViewStore.getSpaceDocumentId(),
+                      loading: !state.ready && state.sync === "loading",
+                      sync: state.sync,
+                      canEdit: state.canEdit,
+                      busy: this.documentActionBusy,
+                      error: this.documentActionError ?? documentErrorMessage(state.error),
+                  }
                 : undefined,
         });
     };
@@ -343,8 +400,70 @@ export class RoomListViewModel
             action: Action.ViewRoom,
             room_id: roomId,
             matcha_space_docs: content === "docs",
+            matcha_space_doc: content === "docs" ? this.props.roomViewStore.getSpaceDocumentId() : undefined,
             metricsTrigger: undefined,
         });
+    };
+
+    public openSpaceDocument = (id: string): void => {
+        const space = this.getDocumentSpace();
+        if (!space || !this.documentCatalog?.getState().documents.some((document) => document.id === id)) return;
+        dispatcher.dispatch<ViewRoomPayload>({
+            action: Action.ViewRoom,
+            room_id: space.roomId,
+            matcha_space_docs: true,
+            matcha_space_doc: id,
+            metricsTrigger: undefined,
+        });
+    };
+
+    public createSpaceDocument = async (): Promise<void> => this.editDocumentName();
+
+    public renameSpaceDocument = async (id: string): Promise<void> => this.editDocumentName(id);
+
+    private editDocumentName = async (id?: string): Promise<void> => {
+        const catalog = this.documentCatalog;
+        if (!catalog?.getState().canEdit || this.documentActionBusy) return;
+        const document = id && this.getSnapshot().spaceDocuments?.items.find((entry) => entry.id === id);
+        if (id && !document) return;
+        this.documentActionBusy = true;
+        this.documentActionError = undefined;
+        this.publishDocuments();
+        try {
+            const [confirmed, name] = await Modal.createDialog(TextInputDialog, {
+                title: id ? _t("matcha_space_docs|rename_document") : _t("matcha_space_docs|new_document"),
+                placeholder: _t("matcha_space_docs|document_name"),
+                value: document ? document.name : undefined,
+                button: id ? _t("action|save") : _t("matcha_space_docs|new_document"),
+                usePlaceholderAsHint: true,
+                validator: async ({ value }) => ({
+                    valid: validSpaceDocumentName(value),
+                    feedback: validSpaceDocumentName(value) ? undefined : _t("matcha_space_docs|invalid_name"),
+                }),
+            }).finished;
+            if (!confirmed || !validSpaceDocumentName(name) || this.isDisposed || catalog !== this.documentCatalog)
+                return;
+            if (id) await catalog.rename(id, name);
+            else {
+                const createdId = await catalog.create(name);
+                if (!this.isDisposed && catalog === this.documentCatalog) this.openSpaceDocument(createdId);
+            }
+        } catch {
+            if (!this.isDisposed && catalog === this.documentCatalog) {
+                this.documentActionError = id
+                    ? _t("matcha_space_docs|rename_error")
+                    : _t("matcha_space_docs|create_error");
+            }
+        } finally {
+            this.documentActionBusy = false;
+            this.publishDocuments();
+        }
+    };
+
+    public retrySpaceDocuments = async (): Promise<void> => {
+        this.documentActionError = undefined;
+        await this.documentCatalog?.retry();
+        this.publishDocuments();
     };
 
     /**

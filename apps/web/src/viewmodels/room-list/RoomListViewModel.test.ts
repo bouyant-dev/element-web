@@ -26,6 +26,8 @@ import { Action } from "../../dispatcher/actions";
 import { SDKContextClass } from "../../contexts/SDKContextClass";
 import DMRoomMap from "../../utils/DMRoomMap";
 import { RoomListViewModel } from "./RoomListViewModel";
+import Modal from "../../Modal";
+import { SpaceDocumentCatalog } from "../../utils/matcha/documentCatalog";
 import { PreviewRoomListItemViewModel } from "./PreviewRoomListItemViewModel";
 import { type RoomViewStore } from "../../stores/RoomViewStore";
 import { UPDATE_EVENT } from "../../stores/AsyncStore";
@@ -52,6 +54,28 @@ vi.mock("./utils", () => ({
     hasCreateRoomRights: vi.fn().mockReturnValue(false),
     hasAccessToOptionsMenu: vi.fn().mockReturnValue(true),
     hasAccessToNotificationMenu: vi.fn().mockReturnValue(true),
+}));
+
+vi.mock("../../utils/matcha/documentCatalog", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../utils/matcha/documentCatalog")>()),
+    SpaceDocumentCatalog: vi.fn(
+        class extends EventTarget {
+            public getState = vi.fn(() => ({
+                documents: [
+                    { id: "main", createdAt: 0 },
+                    { id: "plan", title: "Project plan", createdAt: 1 },
+                ],
+                ready: true,
+                canEdit: true,
+                sync: "saved",
+                pendingUpdates: 0,
+            }));
+            public create = vi.fn(async () => "created");
+            public rename = vi.fn(async () => {});
+            public retry = vi.fn(async () => {});
+            public release = vi.fn();
+        },
+    ),
 }));
 
 describe("RoomListViewModel", () => {
@@ -172,6 +196,7 @@ describe("RoomListViewModel", () => {
             vi.spyOn(stores.spaceStore, "getLastSelectedRoomIdForSpace").mockReturnValue(room1.roomId);
             vi.spyOn(stores.roomViewStore, "getRoomId").mockReturnValue(room1.roomId);
             vi.spyOn(stores.roomViewStore, "isViewingSpaceDocs").mockReturnValue(false);
+            vi.spyOn(stores.roomViewStore, "getSpaceDocumentId").mockReturnValue("main");
             vi.spyOn(matrixClient, "getRoom").mockImplementation(
                 (id) => [space, room1].find((r) => r.roomId === id) ?? null,
             );
@@ -200,6 +225,132 @@ describe("RoomListViewModel", () => {
             vi.mocked(stores.roomViewStore.getRoomId).mockReturnValue(room1.roomId);
             stores.roomViewStore.emit(UPDATE_EVENT);
             expect(viewModel.getSnapshot().spaceContent).toBe("chats");
+        });
+
+        const openDocs = (): SpaceDocumentCatalog => {
+            vi.mocked(stores.roomViewStore.getRoomId).mockReturnValue(space.roomId);
+            vi.mocked(stores.roomViewStore.isViewingSpaceDocs).mockReturnValue(true);
+            stores.roomViewStore.emit(UPDATE_EVENT);
+            return vi.mocked(SpaceDocumentCatalog).mock.results.at(-1)!.value;
+        };
+
+        it("loads only the selected Space catalog in Docs and releases it on Chats", () => {
+            expect(viewModel.getSnapshot().spaceDocuments).toBeUndefined();
+            const catalog = openDocs();
+            expect(SpaceDocumentCatalog).toHaveBeenLastCalledWith(matrixClient, space);
+            expect(viewModel.getSnapshot().spaceDocuments?.items).toEqual([
+                { id: "main", name: "Space notes" },
+                { id: "plan", name: "Project plan" },
+            ]);
+            const dispatch = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+            viewModel.openSpaceDocument("plan");
+            expect(dispatch).toHaveBeenLastCalledWith(
+                expect.objectContaining({ room_id: space.roomId, matcha_space_docs: true, matcha_space_doc: "plan" }),
+            );
+            dispatch.mockClear();
+            viewModel.openSpaceDocument("unknown");
+            expect(dispatch).not.toHaveBeenCalled();
+            vi.mocked(stores.roomViewStore.isViewingSpaceDocs).mockReturnValue(false);
+            stores.roomViewStore.emit(UPDATE_EVENT);
+            expect(catalog.release).toHaveBeenCalledOnce();
+            expect(viewModel.getSnapshot().spaceDocuments).toBeUndefined();
+        });
+
+        it("updates selection and document titles without replacing the catalog", () => {
+            const catalog = openDocs();
+            vi.mocked(stores.roomViewStore.getSpaceDocumentId).mockReturnValue("plan");
+            stores.roomViewStore.emit(UPDATE_EVENT);
+            expect(viewModel.getSnapshot().spaceDocuments?.selectedId).toBe("plan");
+            vi.mocked(catalog.getState).mockReturnValue({
+                ...catalog.getState(),
+                documents: [{ id: "plan", title: "Renamed plan", createdAt: 1 }],
+            });
+            catalog.dispatchEvent(new Event("change"));
+            expect(viewModel.getSnapshot().spaceDocuments?.items).toEqual([{ id: "plan", name: "Renamed plan" }]);
+            expect(catalog.release).not.toHaveBeenCalled();
+        });
+
+        it("creates a named document and opens it only after the server acknowledges it", async () => {
+            const catalog = openDocs();
+            const dispatch = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+            vi.spyOn(Modal, "createDialog").mockReturnValue({
+                finished: Promise.resolve([true, " New plan "]),
+                close: vi.fn(),
+            } as ReturnType<typeof Modal.createDialog>);
+            let acknowledge!: (id: string) => void;
+            vi.mocked(catalog.create).mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        acknowledge = resolve;
+                    }),
+            );
+            const creating = viewModel.createSpaceDocument();
+            await flushPromises();
+            expect(catalog.create).toHaveBeenCalledWith(" New plan ");
+            expect(dispatch).not.toHaveBeenCalled();
+            expect(viewModel.getSnapshot().spaceDocuments?.busy).toBe(true);
+            vi.mocked(catalog.getState).mockReturnValue({
+                ...catalog.getState(),
+                documents: [...catalog.getState().documents, { id: "created", title: "New plan", createdAt: 2 }],
+            });
+            acknowledge("created");
+            await creating;
+            expect(dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ matcha_space_doc: "created" }));
+            expect(viewModel.getSnapshot().spaceDocuments?.busy).toBe(false);
+        });
+
+        it("renames an existing document and surfaces failures without navigating", async () => {
+            const catalog = openDocs();
+            const modal = vi
+                .spyOn(Modal, "createDialog")
+                .mockReturnValue({ finished: Promise.resolve([true, "Planning"]), close: vi.fn() } as ReturnType<
+                    typeof Modal.createDialog
+                >);
+            const dispatch = vi.spyOn(dispatcher, "dispatch").mockImplementation(() => {});
+            await viewModel.renameSpaceDocument("plan");
+            expect(modal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ value: "Project plan" }));
+            expect(catalog.rename).toHaveBeenCalledWith("plan", "Planning");
+            vi.mocked(catalog.rename).mockRejectedValue(new Error("Network unavailable"));
+            await viewModel.renameSpaceDocument("plan");
+            expect(viewModel.getSnapshot().spaceDocuments?.error).toContain("Could not rename");
+            expect(dispatch).not.toHaveBeenCalled();
+            await viewModel.retrySpaceDocuments();
+            expect(catalog.retry).toHaveBeenCalledOnce();
+            expect(viewModel.getSnapshot().spaceDocuments?.error).toBeUndefined();
+        });
+
+        it("rejects stale dialog submissions after leaving the Space", async () => {
+            const catalog = openDocs();
+            let submit!: (result: [boolean, string]) => void;
+            vi.spyOn(Modal, "createDialog").mockReturnValue({
+                finished: new Promise((resolve) => {
+                    submit = resolve;
+                }),
+                close: vi.fn(),
+            } as ReturnType<typeof Modal.createDialog>);
+            const creating = viewModel.createSpaceDocument();
+            vi.spyOn(stores.spaceStore, "activeSpaceRoom", "get").mockReturnValue(null);
+            stores.spaceStore.emit(UPDATE_SELECTED_SPACE);
+            submit([true, "Wrong space"]);
+            await creating;
+            expect(catalog.create).not.toHaveBeenCalled();
+            expect(catalog.release).toHaveBeenCalledOnce();
+        });
+
+        it("blocks create and rename when keys or permissions are missing", async () => {
+            const catalog = openDocs();
+            vi.mocked(catalog.getState).mockReturnValue({
+                ...catalog.getState(),
+                canEdit: false,
+                error: "decrypt_error",
+            });
+            catalog.dispatchEvent(new Event("change"));
+            const modal = vi.spyOn(Modal, "createDialog");
+            await viewModel.createSpaceDocument();
+            await viewModel.renameSpaceDocument("plan");
+            expect(modal).not.toHaveBeenCalled();
+            expect(viewModel.getSnapshot().spaceDocuments?.canEdit).toBe(false);
+            expect(viewModel.getSnapshot().spaceDocuments?.error).toBeTruthy();
         });
 
         it.each(["left", "unrelated", "missing"])("falls back to Space home when the last chat is %s", (reason) => {

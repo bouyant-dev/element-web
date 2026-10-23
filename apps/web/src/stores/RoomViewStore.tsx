@@ -57,6 +57,7 @@ import { ConnectionState, ElementCall } from "../models/Call";
 import { isVideoRoom } from "../utils/video-rooms";
 import { ModuleApi } from "../modules/Api";
 import ActiveWidgetStore from "./ActiveWidgetStore";
+import { isRoomDocumentId } from "../utils/matcha/documents";
 
 const NUM_JOIN_RETRY = 5;
 
@@ -116,6 +117,7 @@ interface State {
     viewingCall: boolean;
     /** Whether the current joined Space is displaying its shared document. */
     viewingSpaceDocs: boolean;
+    spaceDocumentId: string;
 
     promptAskToJoin: boolean;
     /**
@@ -143,6 +145,7 @@ const INITIAL_STATE: State = {
     wasContextSwitch: false,
     viewingCall: false,
     viewingSpaceDocs: false,
+    spaceDocumentId: "main",
     promptAskToJoin: false,
 };
 
@@ -246,6 +249,7 @@ export class RoomViewStore extends EventEmitter {
                     wasContextSwitch: false,
                     viewingCall: false,
                     viewingSpaceDocs: false,
+                    spaceDocumentId: "main",
                 });
                 break;
             case Action.ViewRoomError:
@@ -426,6 +430,10 @@ export class RoomViewStore extends EventEmitter {
                     wasContextSwitch: payload.context_switch,
                     viewingCall,
                     viewingSpaceDocs,
+                    spaceDocumentId:
+                        viewingSpaceDocs && isRoomDocumentId(payload.matcha_space_doc)
+                            ? payload.matcha_space_doc
+                            : "main",
                 });
                 // set this room as the room subscription. We need to await for it as this will fetch
                 // all room state for this room, which is required before we get the state below.
@@ -456,6 +464,8 @@ export class RoomViewStore extends EventEmitter {
                 wasContextSwitch: payload.context_switch ?? false,
                 viewingCall,
                 viewingSpaceDocs,
+                spaceDocumentId:
+                    viewingSpaceDocs && isRoomDocumentId(payload.matcha_space_doc) ? payload.matcha_space_doc : "main",
             };
 
             // Allow being given an event to be replied to when switching rooms but sanity check its for this room
@@ -516,6 +526,7 @@ export class RoomViewStore extends EventEmitter {
                     wasContextSwitch: payload.context_switch,
                     viewingCall: payload.view_call ?? false,
                     viewingSpaceDocs: false,
+                    spaceDocumentId: "main",
                 });
                 try {
                     const result = await MatrixClientPeg.safeGet().getRoomIdForAlias(payload.room_alias);
@@ -556,6 +567,7 @@ export class RoomViewStore extends EventEmitter {
             roomLoading: false,
             roomLoadError: payload.err,
             viewingSpaceDocs: false,
+            spaceDocumentId: "main",
         });
     }
 
@@ -823,6 +835,11 @@ export class RoomViewStore extends EventEmitter {
 
     public isViewingCall(): boolean {
         return this.state.viewingCall;
+    }
+
+    /** Stable ID of the selected Space document. */
+    public getSpaceDocumentId(): string {
+        return this.state.spaceDocumentId;
     }
 
     /** Shared route state for the Space document and the room-list navigation toggle. */

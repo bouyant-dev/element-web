@@ -45,6 +45,8 @@ async function dismissPrompts(page: Page): Promise<void> {
 async function openSpaceDocs(app: ElementAppPage, page: Page, chat: string, waitForEditable = true): Promise<Locator> {
     await dismissPrompts(page);
     await app.viewSpaceByName(SPACE_NAME);
+    const sidebar = page.getByRole("navigation", { name: "Room list", exact: true });
+    await sidebar.getByRole("button", { name: "Chats", exact: true }).click();
     await app.viewRoomByName(chat);
     const navigation = page.getByRole("navigation", { name: "Room conversations" });
     await expect(navigation.getByRole("button", { name: "Docs", exact: true })).toHaveCount(0);
@@ -64,12 +66,28 @@ async function openSpaceDocs(app: ElementAppPage, page: Page, chat: string, wait
         "aria-current",
         "page",
     );
+    await expect(sidebar.getByRole("listbox", { name: "Room list", exact: true })).toHaveCount(0);
+    await expect(sidebar.getByRole("region", { name: "Saved documents", exact: true })).toBeVisible();
+    await sidebar.getByRole("button", { name: "Space notes", exact: true }).click();
     const region = page.getByRole("region", { name: "Docs", exact: true });
     await expect(region).toContainText(SPACE_NAME);
     const editor = region.getByRole("textbox", { name: "Markdown document", exact: true });
     await expect(editor).toBeVisible();
     if (waitForEditable) await expect(editor).toBeEditable();
     return editor;
+}
+
+async function createDocument(page: Page, name: string): Promise<string> {
+    const documents = page.getByRole("region", { name: "Saved documents", exact: true });
+    await documents.getByRole("button", { name: "New document", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "New document", exact: true });
+    await dialog.getByRole("textbox", { name: "Document name", exact: true }).fill(name);
+    await dialog.getByRole("button", { name: "New document", exact: true }).click();
+    await expect(documents.getByRole("button", { name, exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("textbox", { name: "Markdown document", exact: true })).toBeEditable();
+    const id = new URLSearchParams(new URL(page.url()).hash.split("?")[1]).get("doc");
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    return id!;
 }
 
 test.describe("Matcha shared Space Docs", () => {
@@ -81,7 +99,7 @@ test.describe("Matcha shared Space Docs", () => {
         botCreateOpts: { displayName: "Space owner", autoAcceptInvites: true },
     });
 
-    test("explicitly enables encrypted Space Docs, lets ordinary members collaborate across child chats, and preserves private earlier docs", async ({
+    test("enables encrypted named Space documents, shares live editing and renames, and preserves private earlier docs", async ({
         app: alice,
         page: alicePage,
         user: aliceCredentials,
@@ -270,6 +288,11 @@ test.describe("Matcha shared Space Docs", () => {
                 })
                 .toBe(true);
             await docsToggle.click();
+            await expect(firstChat).toHaveCount(0);
+            await expect(roomList.getByRole("listbox", { name: "Room list filters", exact: true })).toBeHidden();
+            const savedDocuments = roomList.getByRole("region", { name: "Saved documents", exact: true });
+            await expect(savedDocuments.getByRole("button", { name: "Space notes", exact: true })).toBeVisible();
+            await expect(savedDocuments.getByRole("button", { name: "New document", exact: true })).toBeDisabled();
             await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs`);
             await expect(docsToggle).toHaveAttribute("aria-current", "page");
             await expect(alicePage.getByRole("textbox", { name: "Markdown document", exact: true })).toHaveCount(0);
@@ -383,6 +406,8 @@ test.describe("Matcha shared Space Docs", () => {
             await alicePage.goForward();
             await expect(chatsToggle).toHaveAttribute("aria-current", "page");
             await docsToggle.click();
+            await expect(firstChat).toHaveCount(0);
+            await chatsToggle.click();
             await firstChat.click();
             await expect(alicePage).toHaveURL((url) => decodeURIComponent(url.hash) === `#/room/${aliceChatId}`);
             await expect(chatsToggle).toHaveAttribute("aria-current", "page");
@@ -447,6 +472,80 @@ test.describe("Matcha shared Space Docs", () => {
             await expect(docsToggle).toHaveAttribute("aria-current", "page");
             await expect(aliceEditor).toContainText("Unsent change survives navigation and retry.");
 
+            // A named catalog replaces chats in the sidebar; each entry opens an isolated collaborative document.
+            const firstDocId = await createDocument(alicePage, "Release notes");
+            await aliceEditor.fill("# Release notes\n\nOnly the release document contains this checklist.\n");
+            await expect(aliceDocs.getByRole("status")).toHaveText("Saved");
+            const bobDocuments = bobPage.getByRole("region", { name: "Saved documents", exact: true });
+            await expect(bobDocuments.getByRole("button", { name: "Release notes", exact: true })).toBeVisible();
+            await bobDocuments.getByRole("button", { name: "Release notes", exact: true }).click();
+            await expect(bobEditor).toContainText("Only the release document");
+            await expect(bobEditor).not.toContainText("Alice contribution");
+
+            const secondDocId = await createDocument(alicePage, "Incident handbook");
+            expect(secondDocId).not.toBe(firstDocId);
+            await aliceEditor.fill("# Incident handbook\n\nThe second document keeps its own instructions.\n");
+            await expect(aliceDocs.getByRole("status")).toHaveText("Saved");
+            await expect(bobDocuments.getByRole("button", { name: "Incident handbook", exact: true })).toBeVisible();
+            await savedDocuments.getByRole("button", { name: "Rename Release notes", exact: true }).click();
+            const rename = alicePage.getByRole("dialog", { name: "Rename document", exact: true });
+            await rename.getByRole("textbox", { name: "Document name", exact: true }).fill("Launch guide");
+            await rename.getByRole("button", { name: "Save", exact: true }).click();
+            await expect(savedDocuments.getByRole("button", { name: "Launch guide", exact: true })).toBeVisible();
+            await expect(bobDocuments.getByRole("button", { name: "Launch guide", exact: true })).toHaveAttribute(
+                "aria-current",
+                "page",
+            );
+            await expect(bobDocs.getByRole("heading", { name: "Launch guide", exact: true })).toBeVisible();
+            await expect(bobEditor).toContainText("Only the release document");
+            await expect(aliceDocs.getByRole("heading", { name: "Incident handbook", exact: true })).toBeVisible();
+
+            await savedDocuments.getByRole("button", { name: "Launch guide", exact: true }).click();
+            await expect(alicePage).toHaveURL(
+                (url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs&doc=${firstDocId}`,
+            );
+            await expect(aliceEditor).toContainText("Only the release document");
+            await expect(aliceEditor).not.toContainText("second document");
+            await savedDocuments.getByRole("button", { name: "Incident handbook", exact: true }).click();
+            await expect(aliceEditor).toContainText("second document");
+            await expect(aliceEditor).not.toContainText("release document");
+            await alicePage.goBack();
+            await expect(alicePage).toHaveURL(
+                (url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs&doc=${firstDocId}`,
+            );
+            await expect(aliceEditor).toContainText("Only the release document");
+            await alicePage.goForward();
+            await expect(alicePage).toHaveURL(
+                (url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs&doc=${secondDocId}`,
+            );
+            await bobDocuments.getByRole("button", { name: "Incident handbook", exact: true }).click();
+            await Promise.all([alicePage.reload(), bobPage.reload()]);
+            for (const page of [alicePage, bobPage]) {
+                await expect(page).toHaveURL(
+                    (url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs&doc=${secondDocId}`,
+                );
+                const list = page.getByRole("region", { name: "Saved documents", exact: true });
+                await expect(list.getByRole("button", { name: "Launch guide", exact: true })).toBeVisible();
+                await expect(list.getByRole("button", { name: "Incident handbook", exact: true })).toHaveAttribute(
+                    "aria-current",
+                    "page",
+                );
+                const editor = page.getByRole("textbox", { name: "Markdown document", exact: true });
+                await expect(editor).toBeEditable();
+                await expect(editor).toContainText("second document");
+                await expect(editor).not.toContainText("release document");
+                await list.getByRole("button", { name: "Space notes", exact: true }).click();
+                await expect(editor).toContainText("Alice contribution");
+                await expect(editor).toContainText("Bob contribution");
+                await expect(editor).toContainText("Unsent change survives navigation and retry.");
+                await expect(editor).not.toContainText("second document");
+                await expect(editor).not.toContainText("release document");
+            }
+            await alicePage.screenshot({
+                path: testInfo.outputPath("space-documents-library.png"),
+                animations: "disabled",
+            });
+
             const persisted = await alice.client.evaluate(
                 async (client, args) => {
                     const space = client.getRoom(args.spaceId)!;
@@ -483,10 +582,13 @@ test.describe("Matcha shared Space Docs", () => {
                 persisted.decoded.every(
                     (event) =>
                         event.type === DOC_EVENT &&
-                        event.doc === "main" &&
+                        ["main", "catalog", firstDocId, secondDocId].includes(event.doc) &&
                         ["update", "chunk", "commit"].includes(event.kind),
                 ),
             ).toBe(true);
+            expect(new Set(persisted.decoded.map((event) => event.doc))).toEqual(
+                new Set(["main", "catalog", firstDocId, secondDocId]),
+            );
             expect(persisted.documentStateTypes).toEqual([]);
             for (const text of [
                 "Shared plan",
@@ -494,6 +596,9 @@ test.describe("Matcha shared Space Docs", () => {
                 "Bob contribution",
                 "Unsent change survives",
                 "Legacy private plan",
+                "Release notes",
+                "Launch guide",
+                "Incident handbook",
             ])
                 expect(JSON.stringify(persisted.wire)).not.toContain(text);
 
@@ -521,6 +626,7 @@ test.describe("Matcha shared Space Docs", () => {
                 }),
             ).rejects.toThrow();
 
+            await chatsToggle.click();
             await alice.viewRoomByName(ALICE_CHAT);
             await expect(chatsToggle).toHaveAttribute("aria-current", "page");
             await alicePage.getByRole("button", { name: "More", exact: true }).click();

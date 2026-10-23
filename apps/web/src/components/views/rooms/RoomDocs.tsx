@@ -84,15 +84,23 @@ function MarkdownEditor({ vm, editable }: { vm: RoomDocsViewModel; editable: boo
 }
 
 /** Bind the room's encrypted collaborative document to the open-source Markdown editor. */
-export function RoomDocs({ room, readOnly = false }: { room: Room; readOnly?: boolean }): JSX.Element {
+export function RoomDocs({
+    room,
+    readOnly = false,
+    documentId = "main",
+}: {
+    room: Room;
+    readOnly?: boolean;
+    documentId?: string;
+}): JSX.Element {
     const client = useMatrixClientContext();
-    const vm = useCreateAutoDisposedViewModel(() => new RoomDocsViewModel({ room, client, readOnly }));
+    const vm = useCreateAutoDisposedViewModel(() => new RoomDocsViewModel({ room, client, readOnly, documentId }));
     const state = useViewModel(vm);
     const download = (): void => {
         const url = URL.createObjectURL(new Blob([vm.getMarkdown()], { type: "text/markdown;charset=utf-8" }));
         const link = document.createElement("a");
         link.href = url;
-        link.download = "room-docs.md";
+        link.download = state.documentName ? `${state.documentName.replace(/[\\/:*?"<>|]/g, "-")}.md` : "room-docs.md";
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     };

@@ -39,6 +39,7 @@ import { type IMatrixClientCreds } from "../../utils/createMatrixClient";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import PlatformPeg from "../../PlatformPeg";
 import SdkConfig, { type ConfigOptions } from "../../SdkConfig";
+import { isRoomDocumentId } from "../../utils/matcha/documents";
 import dis from "../../dispatcher/dispatcher";
 import Modal from "../../Modal";
 import { showRoomInviteDialog, showStartChatInviteDialog } from "../../RoomInvite";
@@ -208,6 +209,7 @@ interface IState {
     roomJustCreatedOpts?: IOpts;
     forceTimeline?: boolean; // see props
     viewingSpaceDocs?: boolean;
+    spaceDocumentId?: string;
 }
 
 export default class MatrixChat extends React.PureComponent<IProps, IState> {
@@ -761,6 +763,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                         action: Action.ViewRoom,
                         room_id: this.state.currentRoomId,
                         matcha_space_docs: this.state.viewingSpaceDocs,
+                        matcha_space_doc: this.state.spaceDocumentId,
                         metricsTrigger: undefined, // room doesn't change
                     });
                 }
@@ -1041,6 +1044,8 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
             room?.isSpaceRoom() &&
             room.getMyMembership() === "join"
         );
+        const spaceDocumentId =
+            viewingSpaceDocs && isRoomDocumentId(roomInfo.matcha_space_doc) ? roomInfo.matcha_space_doc : "main";
         if (room) {
             // Not all timeline events are decrypted ahead of time anymore
             // Only the critical ones for a typical UI are
@@ -1064,7 +1069,8 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         let replaceLast =
             presentedId[0] === "#" &&
             roomInfo.room_id === this.state.currentRoomId &&
-            viewingSpaceDocs === !!this.state.viewingSpaceDocs;
+            viewingSpaceDocs === !!this.state.viewingSpaceDocs &&
+            (!viewingSpaceDocs || spaceDocumentId === (this.state.spaceDocumentId ?? "main"));
 
         if (isLocalRoom(this.state.currentRoomId)) {
             // Replace local room history items
@@ -1084,6 +1090,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
         }
         if (viewingSpaceDocs) {
             presentedId += "?view=docs";
+            if (spaceDocumentId !== "main") presentedId += `&doc=${encodeURIComponent(spaceDocumentId)}`;
             roomInfo.forceTimeline = false;
         }
         this.setState(
@@ -1095,6 +1102,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                 roomOobData: roomInfo.oob_data,
                 forceTimeline: roomInfo.forceTimeline,
                 viewingSpaceDocs,
+                spaceDocumentId,
                 ready: true,
                 roomJustCreatedOpts: roomInfo.justCreatedOpts,
             },
@@ -2038,6 +2046,7 @@ export default class MatrixChat extends React.PureComponent<IProps, IState> {
                 action: Action.ViewRoom,
                 event_id: eventId,
                 matcha_space_docs: params?.view === "docs",
+                matcha_space_doc: isRoomDocumentId(params?.doc) ? params.doc : undefined,
                 via_servers: via,
                 // If an event ID is given in the URL hash, notify RoomViewStore to mark
                 // it as highlighted, which will propagate to RoomView and highlight the

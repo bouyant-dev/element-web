@@ -14,9 +14,13 @@ import { SpaceDocsViewModel } from "../../../viewmodels/room/SpaceDocsViewModel"
 import { RoomDocs } from "./RoomDocs";
 
 /** Never mount the document transport until Space encryption and shared editing permissions are synced. */
-export function SpaceDocs({ space }: { space: Room }): JSX.Element {
+export function SpaceDocs({ space, documentId = "main" }: { space: Room; documentId?: string }): JSX.Element {
     const client = useMatrixClientContext();
     const vm = useCreateAutoDisposedViewModel(() => new SpaceDocsViewModel({ space, client }));
     const state = useViewModel(vm);
-    return state.configured ? <RoomDocs room={space} /> : <SpaceDocsSetupView vm={vm} />;
+    return state.configured ? (
+        <RoomDocs key={`${space.roomId}:${documentId}`} room={space} documentId={documentId} />
+    ) : (
+        <SpaceDocsSetupView vm={vm} />
+    );
 }

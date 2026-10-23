@@ -246,6 +246,7 @@ export interface IRoomState {
     matchaBoardThreadId?: string;
     matchaDocs?: "legacy";
     viewingSpaceDocs?: boolean;
+    spaceDocumentId?: string;
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -656,6 +657,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
             matchaBoardThreadId: roomId === this.state.roomId ? this.state.matchaBoardThreadId : undefined,
             matchaDocs: roomId === this.state.roomId ? this.state.matchaDocs : undefined,
             viewingSpaceDocs: roomViewStore.isViewingSpaceDocs(),
+            spaceDocumentId: roomViewStore.getSpaceDocumentId(),
             roomAlias: roomAlias,
             roomLoading: roomLoading,
             roomLoadError,
@@ -2538,6 +2540,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 <SpaceRoomView
                     space={this.state.room}
                     docs={this.state.viewingSpaceDocs}
+                    documentId={this.state.spaceDocumentId}
                     justCreatedOpts={this.props.justCreatedOpts}
                     resizeNotifier={this.context.resizeNotifier}
                     permalinkCreator={this.permalinkCreator}

@@ -57,7 +57,7 @@ declare module "matrix-js-sdk/src/types" {
     export interface TimelineEvents {
         "com.matchahoneylatte.docs.update": {
             "version": 1;
-            "doc": "main";
+            "doc": string;
             "kind": "update" | "chunk" | "commit";
             "update_id": string;
             "chunk"?: number;

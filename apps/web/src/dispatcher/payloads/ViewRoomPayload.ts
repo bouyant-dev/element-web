@@ -34,6 +34,7 @@ interface BaseViewRoomPayload extends Pick<ActionPayload, "action"> {
     justCreatedOpts?: IOpts; // if this is a newly created room then this is a reference to the creation opts
     oob_data?: IOOBData; // any out-of-band data about this room can be used to render some room details without peeking
     forceTimeline?: boolean; // Whether to override default behaviour to end up at a timeline
+    matcha_space_doc?: string; // Stable document ID within the selected Space
     matcha_space_docs?: boolean; // Whether to open Docs for a joined Space instead of its landing page
     show_room_tile?: boolean; // Whether to ensure that the room tile is visible in the room list
     clear_search?: boolean; // Whether to clear the room list search

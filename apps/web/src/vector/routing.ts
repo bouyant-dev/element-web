@@ -58,6 +58,8 @@ export function onNewScreen(screen: string, replaceLast = false): void {
         screen.startsWith("room/") &&
         (parseQsFromFragment(window.location).params?.get("view") ?? null) ===
             new URLSearchParams(screen.split("?")[1]).get("view") &&
+        (parseQsFromFragment(window.location).params?.get("doc") ?? null) ===
+            new URLSearchParams(screen.split("?")[1]).get("doc") &&
         window.location.hash.includes("/$") === hash.includes("/$") && // only if both did or didn't contain event link
         window.location.hash.startsWith(hash)
     ) {

@@ -29,7 +29,7 @@ import { logger } from "matrix-js-sdk/src/logger";
 
 import { decryptMatrixEventWithRetry } from "./encryption";
 
-/** Encrypted timeline events carrying one chat's shared Markdown document. */
+/** Encrypted timeline events carrying shared Markdown documents and their catalog. */
 export const ROOM_DOC_EVENT = "com.matchahoneylatte.docs.update";
 /** Leaves ample room for JSON, base64 and the Matrix encryption envelope below 64KiB. */
 export const ROOM_DOC_CHUNK_BYTES = 16 * 1024;
@@ -39,7 +39,7 @@ const REMOTE_ORIGIN = {};
 /** One immutable part of the document transport protocol. */
 export interface RoomDocFrame {
     "version": 1;
-    "doc": "main";
+    "doc": string;
     "update_id": string;
     "kind": "update" | "chunk" | "commit";
     "chunks": number;
@@ -95,13 +95,26 @@ export function canEditRoomDocument(client: MatrixClient, room: Room): boolean {
     );
 }
 
+/** Stable user-facing document identifiers; the reserved catalog is never an editor route. */
+export function isRoomDocumentId(value: unknown): value is string {
+    return (
+        typeof value === "string" &&
+        (value === "main" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value))
+    );
+}
+
+function validateTransportDocumentId(id: string): void {
+    if (id !== "catalog" && !isRoomDocumentId(id)) throw new DocumentError("invalid_update");
+}
+
 /** Split oversized binary updates and commit only after every part has been acknowledged. */
-export function documentFrames(update: Uint8Array, anchor: string, id: string): RoomDocFrame[] {
+export function documentFrames(update: Uint8Array, anchor: string, id: string, docId = "main"): RoomDocFrame[] {
+    validateTransportDocumentId(docId);
     const count = Math.ceil(update.length / ROOM_DOC_CHUNK_BYTES);
     if (count < 1 || count > MAX_CHUNKS) throw new DocumentError("too_large_error");
     const common = {
         "version": 1 as const,
-        "doc": "main" as const,
+        "doc": docId,
         "update_id": id,
         "chunks": count,
         "m.relates_to": { rel_type: RelationType.Reference, event_id: anchor },
@@ -116,10 +129,10 @@ export function documentFrames(update: Uint8Array, anchor: string, id: string): 
     return frames;
 }
 
-function readFrame(event: MatrixEvent, roomId: string, anchor: string): RoomDocFrame | undefined {
+function readFrame(event: MatrixEvent, roomId: string, anchor: string, docId: string): RoomDocFrame | undefined {
     if (event.getRoomId() !== roomId || event.getType() !== ROOM_DOC_EVENT) return;
     const value = event.getContent();
-    if (value.doc !== "main") return;
+    if (value.doc !== docId) return;
     if (
         event.isRedacted() ||
         value.version !== 1 ||
@@ -179,8 +192,10 @@ export class RoomDocumentSession extends EventTarget {
         private readonly client: MatrixClient,
         private readonly room: Room,
         private readonly onUnused: () => void = () => {},
+        private readonly docId = "main",
     ) {
         super();
+        validateTransportDocumentId(docId);
         this.doc.on("update", this.onUpdate);
         client.on(RoomEvent.Timeline, this.onTimeline);
         client.on(MatrixEventEvent.Decrypted, this.onDecrypted);
@@ -302,7 +317,7 @@ export class RoomDocumentSession extends EventTarget {
         event = await decryptMatrixEventWithRetry(this.client, event, raw);
         if (this.disposed) return;
         if (event.isDecryptionFailure()) throw new DocumentError("decrypt_error");
-        const frame = readFrame(event, this.room.roomId, this.anchor!);
+        const frame = readFrame(event, this.room.roomId, this.anchor!, this.docId);
         if (!frame) {
             if (id) this.seenEvents.add(id);
             return;
@@ -437,7 +452,7 @@ export class RoomDocumentSession extends EventTarget {
                 if (!this.packets.length) {
                     const update = Y.mergeUpdates(this.buffered);
                     const id = crypto.randomUUID();
-                    const frames = documentFrames(update, this.anchor!, id);
+                    const frames = documentFrames(update, this.anchor!, id, this.docId);
                     this.packets.push({
                         frames,
                         transactionIds: frames.map((_, index) => `matcha-doc.${id}.${index}`),
@@ -506,17 +521,19 @@ export class RoomDocumentSession extends EventTarget {
 
 const sessions = new WeakMap<MatrixClient, Map<string, RoomDocumentSession>>();
 /** Reuse pending sessions across editor unmounts without persisting document plaintext to disk. */
-export function getRoomDocumentSession(client: MatrixClient, room: Room): RoomDocumentSession {
+export function getRoomDocumentSession(client: MatrixClient, room: Room, docId = "main"): RoomDocumentSession {
+    validateTransportDocumentId(docId);
     let rooms = sessions.get(client);
     if (!rooms) {
         rooms = new Map();
         sessions.set(client, rooms);
     }
-    let session = rooms.get(room.roomId);
+    const key = JSON.stringify([room.roomId, docId]);
+    let session = rooms.get(key);
     if (session) session.retain();
     else {
-        session = new RoomDocumentSession(client, room, () => rooms.delete(room.roomId));
-        rooms.set(room.roomId, session);
+        session = new RoomDocumentSession(client, room, () => rooms.delete(key), docId);
+        rooms.set(key, session);
         void session.retry();
     }
     return session;
