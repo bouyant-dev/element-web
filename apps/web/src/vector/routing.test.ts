@@ -41,6 +41,16 @@ describe("onNewScreen", () => {
         expect(window.location.assign).toHaveBeenCalled();
         expect(window.location.replace).not.toHaveBeenCalled();
     });
+
+    it("preserves the Back entry when leaving Space Docs for the same Space landing", () => {
+        Object.defineProperty(window, "location", {
+            value: { hash: "#/room/!space:server?view=docs", replace: vi.fn(), assign: vi.fn() },
+            writable: true,
+        });
+        onNewScreen("room/!space:server");
+        expect(window.location.assign).toHaveBeenCalledWith("#/room/!space:server");
+        expect(window.location.replace).not.toHaveBeenCalled();
+    });
 });
 
 describe("getInitialScreenAfterLogin", () => {

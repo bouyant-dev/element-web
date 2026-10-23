@@ -100,7 +100,7 @@ describe("SpaceRoomView", () => {
         cleanup();
     });
 
-    const renderSpaceRoomView = async (justCreatedOpts?: IOpts): Promise<ReturnType<typeof render>> => {
+    const renderSpaceRoomView = async (justCreatedOpts?: IOpts, docs = false): Promise<ReturnType<typeof render>> => {
         const resizeNotifier = new ResizeNotifier();
         const permalinkCreator = new RoomPermalinkCreator(space);
 
@@ -112,6 +112,7 @@ describe("SpaceRoomView", () => {
                 onJoinButtonClicked={vi.fn()}
                 onRejectButtonClicked={vi.fn()}
                 justCreatedOpts={justCreatedOpts}
+                docs={docs}
             />,
             clientAndSDKContextRenderOptions(cli, SDKContextClass.instance),
         );
@@ -119,21 +120,20 @@ describe("SpaceRoomView", () => {
     };
 
     describe("SpaceLanding", () => {
-        it("offers joined Space Rooms and Docs tabs without changing any room state", async () => {
+        it("renders route-controlled Docs without duplicating the sidebar navigation", async () => {
             SdkConfig.add({ matcha_thread_tabs: true });
-            await renderSpaceRoomView();
-            expect(screen.getByRole("button", { name: "Rooms" })).toHaveAttribute("aria-current", "page");
-            fireEvent.click(screen.getByRole("button", { name: "Docs" }));
+            const view = await renderSpaceRoomView(undefined, true);
             expect(screen.getByRole("region", { name: "Space document" })).toHaveTextContent(space.roomId);
-            expect(screen.getByRole("button", { name: "Docs" })).toHaveAttribute("aria-current", "page");
-            fireEvent.click(screen.getByRole("button", { name: "Rooms" }));
+            expect(screen.queryByRole("navigation", { name: "Space content" })).not.toBeInTheDocument();
+            view.unmount();
+            await renderSpaceRoomView();
             expect(screen.queryByRole("region", { name: "Space document" })).not.toBeInTheDocument();
             expect(cli.sendStateEvent).not.toHaveBeenCalled();
         });
 
         it("keeps the original Space landing when beta features are disabled", async () => {
             SdkConfig.add({ matcha_thread_tabs: false });
-            await renderSpaceRoomView();
+            await renderSpaceRoomView(undefined, true);
             expect(screen.queryByRole("navigation", { name: "Space content" })).not.toBeInTheDocument();
             await expect(screen.findByText("Welcome to")).resolves.toBeVisible();
         });

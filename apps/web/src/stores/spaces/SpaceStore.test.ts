@@ -36,6 +36,7 @@ import {
 import DMRoomMap from "../../../src/utils/DMRoomMap";
 import defaultDispatcher from "../../../src/dispatcher/dispatcher";
 import SettingsStore from "../../../src/settings/SettingsStore";
+import SdkConfig from "../../SdkConfig";
 import { SettingLevel } from "../../settings/SettingLevel";
 import { Action } from "../../dispatcher/actions";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
@@ -1033,6 +1034,18 @@ describe("SpaceStore", () => {
             vi.runOnlyPendingTimers();
             return currentRoom;
         };
+
+        it("preserves the last child chat when opening Docs while selecting the target Space", () => {
+            SdkConfig.add({ matcha_thread_tabs: true });
+            store.setActiveSpace(space1);
+            viewRoom(room1);
+            expect(store.getLastSelectedRoomIdForSpace(space1)).toBe(room1);
+            store.setActiveSpace(space2);
+            defaultDispatcher.dispatch({ action: Action.ViewRoom, room_id: space1, matcha_space_docs: true }, true);
+            expect(store.activeSpace).toBe(space1);
+            expect(store.getLastSelectedRoomIdForSpace(space1)).toBe(room1);
+            SdkConfig.add({ matcha_thread_tabs: false });
+        });
 
         it("last viewed room in target space is the current viewed and in both spaces", async () => {
             store.setActiveSpace(space1);

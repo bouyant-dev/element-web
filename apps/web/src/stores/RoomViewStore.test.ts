@@ -424,6 +424,53 @@ describe("RoomViewStore", function () {
         dis.dispatch({ action });
         await untilEmission(roomViewStore, UPDATE_EVENT);
         expect(roomViewStore.getRoomId()).toBeNull();
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(false);
+        SdkConfig.add({ matcha_thread_tabs: false });
+    });
+
+    it("stores Docs only for a joined real Space and clears it on ordinary navigation", async () => {
+        SdkConfig.add({ matcha_thread_tabs: true });
+        const isSpace = vi.spyOn(room, "isSpaceRoom").mockReturnValue(true);
+        const membership = vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        const payload: ViewRoomPayload = {
+            action: Action.ViewRoom,
+            room_id: roomId,
+            matcha_space_docs: true,
+            metricsTrigger: undefined,
+        };
+        await roomViewStore.viewRoom(payload);
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(true);
+        await roomViewStore.viewRoom({ ...payload, matcha_space_docs: false });
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(false);
+        await roomViewStore.viewRoom(payload);
+        await roomViewStore.viewRoom({ action: Action.ViewRoom, room_id: roomId2, metricsTrigger: undefined });
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(false);
+        membership.mockReturnValue(KnownMembership.Invite);
+        await roomViewStore.viewRoom(payload);
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(false);
+        membership.mockReturnValue(KnownMembership.Join);
+        isSpace.mockReturnValue(false);
+        await roomViewStore.viewRoom(payload);
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(false);
+        isSpace.mockReturnValue(true);
+        SdkConfig.add({ matcha_thread_tabs: false });
+        await roomViewStore.viewRoom(payload);
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(false);
+        membership.mockRestore();
+        isSpace.mockRestore();
+    });
+
+    it("preserves Docs mode through alias resolution", async () => {
+        SdkConfig.add({ matcha_thread_tabs: true });
+        const isSpace = vi.spyOn(room, "isSpaceRoom").mockReturnValue(true);
+        const membership = vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        mockClient.getRoomIdForAlias.mockResolvedValue({ room_id: roomId, servers: [] });
+        dis.dispatch({ action: Action.ViewRoom, room_alias: "#space-docs:server", matcha_space_docs: true });
+        await untilDispatch(Action.ActiveRoomChanged, dis);
+        expect(roomViewStore.getRoomId()).toBe(roomId);
+        expect(roomViewStore.isViewingSpaceDocs()).toBe(true);
+        membership.mockRestore();
+        isSpace.mockRestore();
         SdkConfig.add({ matcha_thread_tabs: false });
     });
 
