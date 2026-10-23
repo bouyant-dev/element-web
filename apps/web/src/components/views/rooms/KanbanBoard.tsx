@@ -5,16 +5,28 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type JSX } from "react";
+import React, { useContext, type JSX } from "react";
 import { type Room } from "matrix-js-sdk/src/matrix";
 import { KanbanBoardView, useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 
 import { useMatrixClientContext } from "../../../contexts/MatrixClientContext";
 import { KanbanBoardViewModel } from "../../../viewmodels/room/KanbanBoardViewModel";
+import { SDKContext } from "../../../contexts/SDKContext";
 
 /** Connect a room board, or the current joined-room recap, to Matrix. */
-export function KanbanBoard({ room, onOpenRoom }: { room?: Room; onOpenRoom?: () => void }): JSX.Element {
+export function KanbanBoard({
+    room,
+    onOpenRoom,
+    initialThreadId,
+}: {
+    room?: Room;
+    onOpenRoom?: () => void;
+    initialThreadId?: string;
+}): JSX.Element {
     const client = useMatrixClientContext();
-    const vm = useCreateAutoDisposedViewModel(() => new KanbanBoardViewModel({ room, client, onOpenRoom }));
+    const { rightPanelStore } = useContext(SDKContext);
+    const vm = useCreateAutoDisposedViewModel(
+        () => new KanbanBoardViewModel({ room, client, onOpenRoom, rightPanelStore, initialThreadId }),
+    );
     return <KanbanBoardView vm={vm} />;
 }

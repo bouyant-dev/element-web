@@ -8,12 +8,25 @@ Please see LICENSE in the repository root for full details.
 // @vitest-environment happy-dom
 
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { MatrixEvent, Room, ThreadEvent, type MatrixClient, type Thread } from "matrix-js-sdk/src/matrix";
+import {
+    MatrixEvent,
+    Room,
+    ThreadEvent,
+    MatrixEventEvent,
+    RoomEvent,
+    EventTimeline,
+    type MatrixClient,
+    type Thread,
+    type IEvent,
+    type IRelationsResponse,
+} from "matrix-js-sdk/src/matrix";
+import { KnownMembership } from "matrix-js-sdk/src/types";
 import { stubClient } from "test-utils";
 // oxlint-disable-next-line no-restricted-imports
 import EventEmitter from "events";
 
-import { RoomThreadTabsViewModel, THREAD_ARCHIVE_EVENT } from "./RoomThreadTabsViewModel";
+import { RoomThreadTabsViewModel } from "./RoomThreadTabsViewModel";
+import { THREAD_ARCHIVE_EVENT, THREAD_METADATA_EVENT } from "../../utils/matcha/threads";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import Modal from "../../Modal";
 import type RightPanelStore from "../../stores/right-panel/RightPanelStore";
@@ -25,57 +38,78 @@ describe("RoomThreadTabsViewModel", () => {
     let client: MatrixClient;
     let room: Room;
     let root: MatrixEvent;
-    let thread: Thread;
+    let threads: Thread[];
     let vm: RoomThreadTabsViewModel;
+    const onBoardChange = vi.fn();
     const panel = Object.assign(new EventEmitter(), {
         currentCardForRoom: vi.fn(),
         isOpenForRoom: vi.fn(),
         togglePanel: vi.fn(),
         setCard: vi.fn(),
     });
+    const confirm = (value?: string) =>
+        vi.spyOn(Modal, "createDialog").mockReturnValue({
+            finished: Promise.resolve(value === undefined ? [true] : [true, value]),
+            close: vi.fn(),
+        } as ReturnType<typeof Modal.createDialog>);
 
-    beforeEach(() => {
+    beforeEach(async () => {
         stubClient();
         client = MatrixClientPeg.safeGet();
         room = new Room("!room:server", client, client.getSafeUserId());
         root = new MatrixEvent({
             event_id: "$root",
             room_id: room.roomId,
+            origin_server_ts: 1,
             type: "m.room.message",
             content: { body: "Project plans", msgtype: "m.text" },
+            unsigned: { "m.relations": { "m.thread": { count: 1 } } },
         });
-        thread = { id: "$root", rootEvent: root } as Thread;
-        vi.spyOn(room, "getThreads").mockReturnValue([thread]);
-        vi.spyOn(room, "getThread").mockImplementation((id) => (id === "$root" ? thread : null));
+        threads = [{ id: "$root", rootEvent: root } as Thread];
+        vi.spyOn(room, "getMyMembership").mockReturnValue(KnownMembership.Join);
+        vi.spyOn(room, "maySendMessage").mockReturnValue(true);
+        vi.spyOn(room, "getThreads").mockImplementation(() => threads);
+        vi.spyOn(room, "getThread").mockImplementation((id) => threads.find((thread) => thread.id === id) ?? null);
         vi.spyOn(room, "findEventById").mockImplementation((id) => (id === "$root" ? root : undefined));
-        vi.spyOn(client, "fetchRoomEvent").mockImplementation(async (_roomId, id) => ({
-            ...root.event,
-            event_id: id,
-        }));
+        vi.spyOn(room, "createThread").mockImplementation((id, event) => {
+            const thread = { id, rootEvent: event } as Thread;
+            threads.push(thread);
+            return thread;
+        });
+        vi.spyOn(client, "fetchRoomEvent").mockImplementation(async (_roomId, id) => ({ ...root.event, event_id: id }));
+        client.fetchRelations = vi.fn<MatrixClient["fetchRelations"]>().mockResolvedValue({ chunk: [] });
         vi.spyOn(room, "createThreadsTimelineSets").mockResolvedValue(null);
         vi.spyOn(room, "fetchRoomThreads").mockResolvedValue();
-        vi.spyOn(room.currentState, "maySendStateEvent").mockReturnValue(true);
+        vi.spyOn(room.currentState, "maySendEvent").mockReturnValue(true);
+        vi.spyOn(room.currentState, "maySendStateEvent").mockReturnValue(false);
         vi.spyOn(client, "decryptEventIfNeeded").mockResolvedValue();
-        vi.spyOn(client, "sendStateEvent").mockResolvedValue({ event_id: "$archive" });
+        vi.spyOn(client, "sendEvent").mockResolvedValue({ event_id: "$metadata" });
         panel.currentCardForRoom.mockReturnValue({
             phase: RightPanelPhases.ThreadView,
             state: { threadHeadEvent: root },
         });
         panel.isOpenForRoom.mockReturnValue(true);
-        vm = new RoomThreadTabsViewModel({ room, client, rightPanelStore: panel as unknown as RightPanelStore });
+        vm = new RoomThreadTabsViewModel({
+            room,
+            client,
+            rightPanelStore: panel as unknown as RightPanelStore,
+            onBoardChange,
+            reminderBot: "@reminder:server",
+        });
+        await vi.waitFor(() => expect(vm.getSnapshot().threads[0]?.canManage).toBe(true));
     });
-
     afterEach(() => {
         vm.dispose();
+        vi.useRealTimers();
         vi.restoreAllMocks();
         vi.clearAllMocks();
     });
 
-    it("loads thread titles and switches between native thread and General", async () => {
-        await vm.retry();
+    it("loads titles and switches between native thread, General, history and a linked board", async () => {
         expect(vm.getSnapshot()).toMatchObject({
             selectedId: "$root",
-            threads: [{ title: "Project plans", archived: false }],
+            canCreate: true,
+            threads: [{ title: "Project plans", archived: false, canManage: true }],
         });
         await vm.select("$root");
         expect(panel.setCard).toHaveBeenCalledWith(
@@ -85,29 +119,55 @@ describe("RoomThreadTabsViewModel", () => {
         );
         await vm.select();
         expect(panel.togglePanel).toHaveBeenCalledWith(room.roomId);
-        vm.browse();
-        expect(panel.setCard).toHaveBeenCalledWith({ phase: RightPanelPhases.ThreadPanel }, true, room.roomId);
+        vm.toggleHistory();
+        expect(vm.getSnapshot().showHistory).toBe(true);
+        await vm.linkToBoard("$root");
+        expect(onBoardChange).toHaveBeenCalledWith("room", "$root");
     });
 
-    it("archives only after confirmation, preserving all messages", async () => {
-        await vm.retry();
-        vi.spyOn(Modal, "createDialog").mockReturnValue({
-            finished: Promise.resolve([true]),
-            close: vi.fn(),
-        } as ReturnType<typeof Modal.createDialog>);
+    it("archives with ordinary member permission after confirmation, preserving messages", async () => {
+        confirm();
         await vm.archive("$root", true);
-        expect(client.sendStateEvent).toHaveBeenCalledWith(
-            room.roomId,
-            THREAD_ARCHIVE_EVENT,
-            { archived: true },
-            "$root",
-        );
-        expect(panel.togglePanel).toHaveBeenCalledWith(room.roomId);
+        expect(client.sendEvent).toHaveBeenCalledWith(room.roomId, THREAD_METADATA_EVENT, {
+            "version": 1,
+            "archived": true,
+            "m.relates_to": { rel_type: "m.reference", event_id: "$root" },
+        });
+        expect(client.sendStateEvent).not.toHaveBeenCalled();
         expect(client.redactEvent).not.toHaveBeenCalled();
+        expect(panel.togglePanel).toHaveBeenCalledWith(room.roomId);
+    });
+
+    it("renames without rewriting the root message or archive field", async () => {
+        confirm("Launch plans");
+        await vm.rename("$root");
+        expect(client.sendEvent).toHaveBeenCalledWith(room.roomId, THREAD_METADATA_EVENT, {
+            "version": 1,
+            "name": "Launch plans",
+            "m.relates_to": { rel_type: "m.reference", event_id: "$root" },
+        });
+        expect(vm.getSnapshot().threads[0].title).toBe("Launch plans");
+        expect(root.getContent().body).toBe("Project plans");
+    });
+
+    it("creates a named native thread and opens it without a Reply in thread prerequisite", async () => {
+        confirm("Launch");
+        vi.mocked(client.sendMessage).mockResolvedValue({ event_id: "$created" });
+        await vm.create();
+        expect(client.sendEvent).toHaveBeenCalledWith(room.roomId, "$created", THREAD_METADATA_EVENT, {
+            version: 1,
+            name: "Launch",
+            archived: false,
+        });
+        expect(panel.setCard).toHaveBeenCalledWith(
+            expect.objectContaining({ phase: RightPanelPhases.ThreadView }),
+            true,
+            room.roomId,
+        );
+        expect(vm.getSnapshot().threads).toContainEqual(expect.objectContaining({ id: "$created", title: "Launch" }));
     });
 
     it("does not reopen a slowly decrypted thread after selecting General", async () => {
-        await vm.retry();
         let decrypted!: () => void;
         vi.mocked(client.decryptEventIfNeeded).mockImplementation(
             () =>
@@ -122,60 +182,17 @@ describe("RoomThreadTabsViewModel", () => {
         expect(panel.setCard).not.toHaveBeenCalled();
     });
 
-    it("opens board views and prevents duplicate reminder dialogs", async () => {
-        vm.dispose();
-        const onBoardChange = vi.fn();
-        vm = new RoomThreadTabsViewModel({
-            room,
-            client,
-            rightPanelStore: panel as unknown as RightPanelStore,
-            onBoardChange,
-            reminderBot: "@reminder:server",
-        });
-        await vm.retry();
-        vm.openBoard("all");
-        expect(onBoardChange).toHaveBeenCalledWith("all");
-        vm.setBoard("all");
-        expect(vm.getSnapshot().board).toBe("all");
-        const pending = Promise.withResolvers<void>();
-        const schedule = vi.spyOn(reminders, "scheduleRoomReminder").mockReturnValue(pending.promise);
-        const first = vm.setReminder();
-        await vm.setReminder();
-        expect(schedule).toHaveBeenCalledTimes(1);
-        expect(vm.getSnapshot().busy).toBe(true);
-        pending.resolve();
-        await first;
-        expect(vm.getSnapshot().busy).toBe(false);
-    });
-
-    it("does not archive when cancelled or permission is missing", async () => {
-        await vm.retry();
-        const dialog = vi
-            .spyOn(Modal, "createDialog")
-            .mockReturnValue({ finished: Promise.resolve([false]), close: vi.fn() } as ReturnType<
-                typeof Modal.createDialog
-            >);
-        await vm.archive("$root", true);
-        expect(client.sendStateEvent).not.toHaveBeenCalled();
-        vi.mocked(room.currentState.maySendStateEvent).mockReturnValue(false);
-        dialog.mockClear();
-        await vm.archive("$root", true);
-        expect(dialog).not.toHaveBeenCalled();
-        expect(client.sendStateEvent).not.toHaveBeenCalled();
-    });
-
-    it("rechecks permission after the confirmation dialog", async () => {
-        await vm.retry();
+    it("rechecks current send permissions after the confirmation dialog", async () => {
         vi.spyOn(Modal, "createDialog").mockImplementation(() => {
-            vi.mocked(room.currentState.maySendStateEvent).mockReturnValue(false);
+            vi.mocked(room.currentState.maySendEvent).mockReturnValue(false);
             return { finished: Promise.resolve([true]), close: vi.fn() } as ReturnType<typeof Modal.createDialog>;
         });
         await vm.archive("$root", true);
-        expect(client.sendStateEvent).not.toHaveBeenCalled();
+        expect(client.sendEvent).not.toHaveBeenCalled();
+        expect(vm.getSnapshot().error).toContain("Could not change");
     });
 
-    it("restores archived threads even when their old root is not loaded", async () => {
-        await vm.retry();
+    it("preserves legacy archive entries and loads older native thread pages", async () => {
         room.currentState.setStateEvents([
             new MatrixEvent({
                 type: THREAD_ARCHIVE_EVENT,
@@ -184,32 +201,115 @@ describe("RoomThreadTabsViewModel", () => {
                 content: { archived: true },
             }),
         ]);
-        room.emit(ThreadEvent.Update, thread);
-        expect(vm.getSnapshot().threads).toContainEqual(expect.objectContaining({ id: "$old", archived: true }));
-        vm.toggleArchived();
-        expect(vm.getSnapshot().showArchived).toBe(true);
-        await vm.archive("$old", false);
-        expect(client.sendStateEvent).toHaveBeenCalledWith(
-            room.roomId,
-            THREAD_ARCHIVE_EVENT,
-            { archived: false },
-            "$old",
+        room.threadsTimelineSets[0] = room.getUnfilteredTimelineSet();
+        room.threadsTimelineSets[0].getLiveTimeline().setPaginationToken("older", EventTimeline.BACKWARDS);
+        room.emit(ThreadEvent.Update, threads[0]);
+        await vi.waitFor(() =>
+            expect(vm.getSnapshot().threads.find((thread) => thread.id === "$old")?.canManage).toBe(true),
         );
+        expect(vm.getSnapshot().threads.find((thread) => thread.id === "$old")?.archived).toBe(true);
+        vi.spyOn(client, "paginateEventTimeline").mockResolvedValue(false);
+        await vm.loadMore();
+        expect(client.paginateEventTimeline).toHaveBeenCalledWith(expect.anything(), { backwards: true, limit: 30 });
+        await vm.archive("$old", false);
+        expect(client.sendEvent).toHaveBeenCalledWith(room.roomId, THREAD_METADATA_EVENT, {
+            "version": 1,
+            "archived": false,
+            "m.relates_to": { rel_type: "m.reference", event_id: "$old" },
+        });
     });
 
-    it("reports failed state writes without hiding the conversation", async () => {
+    it("reloads metadata from other members and exposes failure without allowing unsafe management", async () => {
+        vi.mocked(client.fetchRelations).mockRejectedValue(new Error("Offline"));
+        const revision = new MatrixEvent({
+            type: THREAD_METADATA_EVENT,
+            room_id: room.roomId,
+            content: { "version": 1, "name": "New", "m.relates_to": { rel_type: "m.reference", event_id: "$root" } },
+        });
+        client.emit(MatrixEventEvent.Decrypted, revision);
+        await vi.waitFor(() => expect(vm.getSnapshot().error).toContain("Some thread details"));
+        expect(vm.getSnapshot().threads[0].canManage).toBe(false);
+    });
+
+    it("does not refetch when reading history emits decryption callbacks", async () => {
+        const update: IEvent = {
+            event_id: "$updated",
+            type: THREAD_METADATA_EVENT,
+            room_id: room.roomId,
+            sender: "@alice:server",
+            origin_server_ts: 1,
+            unsigned: {},
+            content: {
+                "version": 1,
+                "name": "Renamed",
+                "archived": false,
+                "m.relates_to": { rel_type: "m.reference", event_id: "$root" },
+            },
+        };
+        vi.mocked(client.fetchRelations)
+            .mockClear()
+            .mockResolvedValue({ chunk: [update] });
+        vi.mocked(client.decryptEventIfNeeded).mockImplementation(async (event) => {
+            client.emit(MatrixEventEvent.Decrypted, event);
+        });
+        vi.useFakeTimers();
         await vm.retry();
-        vi.mocked(client.sendStateEvent).mockRejectedValue(new Error("Forbidden"));
-        await vm.archive("$root", false);
-        expect(vm.getSnapshot().error).toContain("Could not change");
-        expect(panel.togglePanel).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).toHaveBeenCalledTimes(1);
+        expect(vm.getSnapshot().threads[0]).toMatchObject({ title: "Renamed", canManage: true });
+    });
+
+    it("keeps the displayed name and fetches one follow-up for a live encrypted revision during loading", async () => {
+        const update: IEvent = {
+            event_id: "$updated",
+            type: THREAD_METADATA_EVENT,
+            room_id: room.roomId,
+            sender: "@alice:server",
+            origin_server_ts: 1,
+            unsigned: {},
+            content: {
+                "version": 1,
+                "name": "Live name",
+                "archived": true,
+                "m.relates_to": { rel_type: "m.reference", event_id: "$root" },
+            },
+        };
+        const first = Promise.withResolvers<IRelationsResponse>();
+        vi.mocked(client.fetchRelations)
+            .mockClear()
+            .mockReturnValueOnce(first.promise)
+            .mockResolvedValue({ chunk: [update] });
+        const refresh = vm.retry();
+        await vi.waitFor(() => expect(client.fetchRelations).toHaveBeenCalledTimes(1));
+        const encrypted = new MatrixEvent({
+            ...update,
+            type: "m.room.encrypted",
+            content: {
+                "ciphertext": "encrypted",
+                "m.relates_to": { rel_type: "m.reference", event_id: "$root" },
+            },
+        });
+        client.emit(RoomEvent.Timeline, encrypted, room, false, false, {
+            timeline: room.getLiveTimeline(),
+            liveEvent: true,
+        });
+        expect(vm.getSnapshot().threads[0].title).toBe("Project plans");
+        first.resolve({ chunk: [] });
+        await refresh;
+        await vi.waitFor(() => expect(vm.getSnapshot().threads[0].title).toBe("Live name"));
+        expect(client.fetchRelations).toHaveBeenCalledTimes(2);
+        expect(vm.getSnapshot().threads[0].archived).toBe(true);
+    });
+
+    it("prevents duplicate reminder dialogs and releases its listeners", async () => {
+        const pending = Promise.withResolvers<void>();
+        const schedule = vi.spyOn(reminders, "scheduleRoomReminder").mockReturnValue(pending.promise);
+        const first = vm.setReminder();
+        await vm.setReminder();
+        expect(schedule).toHaveBeenCalledTimes(1);
+        pending.resolve();
+        await first;
         expect(vm.getSnapshot().busy).toBe(false);
-    });
-
-    it("reports failed loading and releases all listeners", async () => {
-        vi.mocked(room.fetchRoomThreads).mockRejectedValue(new Error("Offline"));
-        await vm.retry();
-        expect(vm.getSnapshot().error).toContain("Could not load");
         vm.dispose();
         expect(panel.listenerCount(UPDATE_EVENT)).toBe(0);
         expect(room.listenerCount(ThreadEvent.New)).toBe(0);

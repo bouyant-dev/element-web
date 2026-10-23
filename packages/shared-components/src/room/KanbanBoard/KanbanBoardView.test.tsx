@@ -20,6 +20,8 @@ class TestViewModel extends MockViewModel<KanbanBoardSnapshot> {
     public edit = vi.fn();
     public setTitle = vi.fn();
     public setDescription = vi.fn();
+    public setThread = vi.fn();
+    public openThread = vi.fn();
     public cancelEdit = vi.fn();
     public save = vi.fn();
     public move = vi.fn();
@@ -50,6 +52,8 @@ const snapshot: KanbanBoardSnapshot = {
     hasMore: false,
     showArchived: false,
     unreadable: false,
+    threads: [],
+    threadsLoading: false,
 };
 
 describe("KanbanBoardView", () => {
@@ -106,9 +110,33 @@ describe("KanbanBoardView", () => {
         render(<KanbanBoardView vm={vm} />);
         expect(screen.getByLabelText("Card title")).toHaveAttribute("maxlength", "200");
         expect(screen.getByLabelText("Description (optional)")).toHaveAttribute("maxlength", "4000");
-        expect(screen.getByRole("alert")).toHaveTextContent("Save failed");
+        expect(screen.getByRole("alert").textContent).toContain("Save failed");
+        await userEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+        expect(vm.reload).toHaveBeenCalled();
         await userEvent.click(screen.getByRole("button", { name: "Save card" }));
         expect(vm.save).toHaveBeenCalled();
+    });
+
+    it("lets a card link and unlink a named chat thread and opens its conversation", async () => {
+        const card = { ...snapshot.cards[0], threadId: "$launch" };
+        const vm = new TestViewModel({
+            ...snapshot,
+            cards: [card],
+            editor: { roomId: "!room:server", title: "Title", description: "", threadId: "$launch" },
+            threads: [
+                { id: "$launch", title: "Beta launch" },
+                { id: "$design", title: "Design review" },
+            ],
+        });
+        render(<KanbanBoardView vm={vm} />);
+        const selector = screen.getByRole("combobox", { name: "Linked thread (optional)" });
+        expect(selector).toHaveValue("$launch");
+        await userEvent.selectOptions(selector, "$design");
+        expect(vm.setThread).toHaveBeenLastCalledWith("$design");
+        await userEvent.selectOptions(selector, "");
+        expect(vm.setThread).toHaveBeenLastCalledWith("");
+        await userEvent.click(screen.getByRole("button", { name: "Open thread" }));
+        expect(vm.openThread).toHaveBeenCalledWith(card);
     });
     it("opens card editing from the compact menu and keeps busy controls disabled", async () => {
         const vm = new TestViewModel(snapshot);
@@ -159,5 +187,7 @@ describe("KanbanBoardView", () => {
         expect(screen.getByRole("status").textContent).toContain("Some card updates could not be decrypted");
         expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Actions for Ship release" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Refresh board" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Retry", exact: true })).not.toBeInTheDocument();
     });
 });

@@ -105,5 +105,10 @@ Do not use screenshot fixtures as evidence of live deployment or live reminder d
 
 ## Deployment status
 
-Deployment is in progress. Record the actual web image/version/commit, public HTTPS verification, bot service state,
-live isolated reminder proof, GitHub workflow status and rollback identities here before reporting completion.
+Beta was deployed successfully from the local minified build `v1.12.32-matcha-6aea90d`, image `sha256:4f170624dcef5baa5953268cd59bf13b9d3760efd3101d8f1120d70c37552592`, container `element-web-beta`, loopback port83. HTTPS `/version` and `/config.json` were verified. A signed-in user session loaded a real production chat with Board, All boards and Set reminder controls. Both clients use `https://matrix.matchahoneylatte.com`. Main Element remains1.12.32; Synapse process identity/start time remained unchanged.
+
+Reminder service is deployed, persistent and running; source matches commit `e258dd7`. Separate disposable Synapse verification proved encrypted commands, acknowledgements and due delivery, including exactly-once delivery after a graceful restart. No production chats were used for test messages. First corrected GitHub workflow run39933437398 succeeded; source default branch is `bouyant-dev/element-web:matcha-beta`.
+
+Current follow-up (requested after using beta): working shared archive for ordinary chat members, create named threads, editable names, at most4 thread tabs, explicit New thread / Thread history buttons, threads linked to board cards, and silent board background refresh without loading flashes or a refresh icon. Implement/test/build locally and deploy beta directly; do not wait on GitHub CI. Do not touch main Element or Synapse configuration/version.
+
+New thread names/archive metadata are being moved to encrypted timeline revisions `com.matchahoneylatte.thread.metadata` with m.reference relation to the native root; retain old archive-state fallback. New named roots need a hidden native m.thread metadata reply so they survive server/client reload. Cards gain optional encrypted `thread_id`, retaining version1 compatibility. Root owns RoomView integration and E2Es; thread_navigation owns metadata/model; board_design owns thread presentation; thread_board_links owns card links and silent refresh. All changes currently uncommitted since722297d.

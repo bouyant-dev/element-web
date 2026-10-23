@@ -32,6 +32,9 @@ import dispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import Modal from "../../Modal";
 import QuestionDialog from "../../components/views/dialogs/QuestionDialog";
+import type RightPanelStore from "../../stores/right-panel/RightPanelStore";
+import { RightPanelPhases } from "../../stores/right-panel/RightPanelStorePhases";
+import { readThreadMetadata, resolveThreadRoot } from "../../utils/matcha/threads";
 
 /** Room state contains only this board's root event identifier, never card content. */
 export const KANBAN_STATE_EVENT = "com.matchahoneylatte.kanban";
@@ -52,6 +55,8 @@ export interface KanbanBoardProps {
     client: MatrixClient;
     room?: Room;
     onOpenRoom?: () => void;
+    rightPanelStore: Pick<RightPanelStore, "setCard">;
+    initialThreadId?: string;
 }
 
 function rootIdFromContent(content: Record<string, unknown>): string | undefined {
@@ -87,6 +92,10 @@ function cardFromEvent(event: MatrixEvent, room: Room, rootId: string): KanbanCa
         column: content.column,
         archived: content.archived,
         canEdit: false,
+        threadId:
+            typeof content.thread_id === "string" && /^\$\S{1,511}$/.test(content.thread_id)
+                ? content.thread_id
+                : undefined,
     };
 }
 
@@ -99,6 +108,10 @@ export class KanbanBoardViewModel
     private generation = 0;
     private refreshTimer?: ReturnType<typeof setTimeout>;
     private createdRootId?: string;
+    private initialThreadId?: string;
+    private editorRequest = 0;
+    private loaded = false;
+    private readingHistory = 0;
 
     public constructor(props: KanbanBoardProps) {
         super(props, {
@@ -112,7 +125,10 @@ export class KanbanBoardViewModel
             hasMore: false,
             showArchived: false,
             unreadable: false,
+            threads: [],
+            threadsLoading: false,
         });
+        this.initialThreadId = props.initialThreadId;
         this.disposables.trackListener(props.client, ClientEvent.Event, (event) => this.onEvent(event as MatrixEvent));
         this.disposables.trackListener(props.client, MatrixEventEvent.Decrypted, (event) =>
             this.onDecrypted(event as MatrixEvent),
@@ -177,7 +193,7 @@ export class KanbanBoardViewModel
 
     private onDecrypted = (event: MatrixEvent): void => {
         // Decrypting fetched history must not trigger another history fetch.
-        if (!this.getSnapshot().loading) this.onEvent(event);
+        if (this.readingHistory === 0) this.onEvent(event);
     };
 
     private onState = (event: MatrixEvent): void => {
@@ -207,30 +223,41 @@ export class KanbanBoardViewModel
 
     private loadPage = async (room: Room, board: BoardData, from?: string): Promise<void> => {
         if (room.getMyMembership() !== "join") return;
-        const result = await this.props.client.fetchRelations(room.roomId, board.rootId, RelationType.Reference, null, {
-            dir: Direction.Backward,
-            limit: 100,
-            from,
-        });
-        for (const raw of result.chunk) {
-            if (this.isDisposed || room.getMyMembership() !== "join") return;
-            const event = this.props.client.getEventMapper()({ ...raw, room_id: room.roomId });
-            await this.props.client.decryptEventIfNeeded(event);
-            if (event.isDecryptionFailure()) {
-                board.unreadable = true;
-                continue;
+        this.readingHistory++;
+        try {
+            const result = await this.props.client.fetchRelations(
+                room.roomId,
+                board.rootId,
+                RelationType.Reference,
+                null,
+                {
+                    dir: Direction.Backward,
+                    limit: 100,
+                    from,
+                },
+            );
+            for (const raw of result.chunk) {
+                if (this.isDisposed || room.getMyMembership() !== "join") return;
+                const event = this.props.client.getEventMapper()({ ...raw, room_id: room.roomId });
+                await this.props.client.decryptEventIfNeeded(event);
+                if (event.isDecryptionFailure()) {
+                    board.unreadable = true;
+                    continue;
+                }
+                const card = cardFromEvent(event, room, board.rootId);
+                // Backward pagination is newest first: retain the first revision, regardless of sender clock.
+                if (card && !board.cards.has(card.id)) board.cards.set(card.id, card);
             }
-            const card = cardFromEvent(event, room, board.rootId);
-            // Backward pagination is newest first: retain the first revision, regardless of sender clock.
-            if (card && !board.cards.has(card.id)) board.cards.set(card.id, card);
+            board.next = result.next_batch && result.next_batch !== from ? result.next_batch : undefined;
+        } finally {
+            this.readingHistory--;
         }
-        board.next = result.next_batch && result.next_batch !== from ? result.next_batch : undefined;
     };
 
     /** Fetch at most one page per joined room; older cards remain available through Load more. */
     public reload = async (): Promise<void> => {
         const generation = ++this.generation;
-        this.snapshot.merge({ loading: true, error: undefined });
+        this.snapshot.merge({ loading: !this.loaded });
         const boards = new Map<string, BoardData>();
         let failed = false;
         for (const room of this.joinedRooms()) {
@@ -243,15 +270,24 @@ export class KanbanBoardViewModel
             boards.set(room.roomId, board);
             try {
                 await this.loadPage(room, board);
+                const previous = this.boards.get(room.roomId);
+                if (previous?.rootId === rootId && (board.next || board.unreadable)) {
+                    // Keep older cards the user already loaded; fresh revisions take precedence.
+                    for (const [id, card] of previous.cards) if (!board.cards.has(id)) board.cards.set(id, card);
+                }
             } catch (error) {
                 logger.warn("Unable to load a Kanban board", error);
                 failed = true;
+                const previous = this.boards.get(room.roomId);
+                if (previous?.rootId === rootId) boards.set(room.roomId, previous);
             }
         }
         if (this.isDisposed || generation !== this.generation) return;
         this.boards = boards;
+        this.loaded = true;
         this.snapshot.merge({ loading: false, error: failed ? _t("matcha_kanban|load_error") : undefined });
         this.publish();
+        if (this.initialThreadId && this.getSnapshot().canAdd && !this.getSnapshot().editor) this.edit();
     };
 
     /** Retrieve the next page for every incomplete board without scanning unrelated room history. */
@@ -292,7 +328,10 @@ export class KanbanBoardViewModel
             logger.warn("Unable to create Kanban board", error);
             if (!this.isDisposed) this.snapshot.merge({ error: _t("matcha_kanban|save_error") });
         } finally {
-            if (!this.isDisposed) this.snapshot.merge({ busy: false });
+            if (!this.isDisposed) {
+                this.snapshot.merge({ busy: false });
+                if (this.initialThreadId && this.getSnapshot().canAdd) this.edit();
+            }
         }
     };
 
@@ -306,8 +345,66 @@ export class KanbanBoardViewModel
                 id: card?.id,
                 title: card?.title ?? "",
                 description: card?.description ?? "",
+                threadId: card?.threadId ?? this.initialThreadId,
             },
+            threadError: undefined,
         });
+        const suggestTitle = !card && !!this.initialThreadId;
+        this.initialThreadId = undefined;
+        void this.loadThreads(room, suggestTitle);
+    };
+    private loadThreads = async (room: Room, suggestTitle: boolean): Promise<void> => {
+        const request = ++this.editorRequest;
+        const linkedId = this.getSnapshot().editor?.threadId;
+        this.snapshot.merge({
+            threadsLoading: true,
+            threads: linkedId ? [{ id: linkedId, title: _t("matcha_kanban|linked_thread_fallback") }] : [],
+        });
+        try {
+            await room.createThreadsTimelineSets();
+            await room.fetchRoomThreads();
+            const ids = new Set(room.getThreads().map((thread) => thread.id));
+            if (linkedId) ids.add(linkedId);
+            const threadIds = [...ids];
+            const results: PromiseSettledResult<{ id: string; title: string }>[] = [];
+            for (let offset = 0; offset < threadIds.length; offset += 4) {
+                if (this.isDisposed || request !== this.editorRequest || room.getMyMembership() !== "join") return;
+                results.push(
+                    ...(await Promise.allSettled(
+                        threadIds.slice(offset, offset + 4).map(async (id) => {
+                            const root = await resolveThreadRoot(this.props.client, room, id);
+                            const metadata = await readThreadMetadata(this.props.client, room, root);
+                            return { id, title: metadata.name };
+                        }),
+                    )),
+                );
+            }
+            if (this.isDisposed || request !== this.editorRequest || room.getMyMembership() !== "join") return;
+            const threads = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+            if (linkedId && !threads.some((thread) => thread.id === linkedId)) {
+                threads.push({ id: linkedId, title: _t("matcha_kanban|linked_thread_fallback") });
+            }
+            const editor = this.getSnapshot().editor;
+            this.snapshot.merge({
+                threads,
+                threadError: results.some((result) => result.status === "rejected")
+                    ? _t("matcha_kanban|threads_error")
+                    : undefined,
+                ...(suggestTitle && editor && !editor.title
+                    ? { editor: { ...editor, title: threads.find((thread) => thread.id === linkedId)?.title ?? "" } }
+                    : {}),
+            });
+        } catch (error) {
+            logger.warn("Unable to load board thread choices", error);
+            if (!this.isDisposed && request === this.editorRequest)
+                this.snapshot.merge({ threadError: _t("matcha_kanban|threads_error") });
+        } finally {
+            if (!this.isDisposed && request === this.editorRequest) this.snapshot.merge({ threadsLoading: false });
+        }
+    };
+    public setThread = (threadId: string): void => {
+        const editor = this.getSnapshot().editor;
+        if (editor) this.snapshot.merge({ editor: { ...editor, threadId: threadId || undefined } });
     };
     public setTitle = (title: string): void => {
         if (this.getSnapshot().editor) this.snapshot.merge({ editor: { ...this.getSnapshot().editor!, title } });
@@ -316,7 +413,8 @@ export class KanbanBoardViewModel
         if (this.getSnapshot().editor) this.snapshot.merge({ editor: { ...this.getSnapshot().editor!, description } });
     };
     public cancelEdit = (): void => {
-        this.snapshot.merge({ editor: undefined });
+        this.editorRequest++;
+        this.snapshot.merge({ editor: undefined, threadsLoading: false, threads: [], threadError: undefined });
     };
     public toggleArchived = (): void => {
         this.snapshot.merge({ showArchived: !this.getSnapshot().showArchived });
@@ -336,6 +434,9 @@ export class KanbanBoardViewModel
             return false;
         this.snapshot.merge({ busy: true, error: undefined });
         try {
+            if (card.threadId && card.threadId !== board.cards.get(card.id)?.threadId) {
+                await resolveThreadRoot(client, room, card.threadId);
+            }
             const current = rootIdFromContent(await client.getStateEvent(room.roomId, KANBAN_STATE_EVENT, ""));
             if (current !== board.rootId) throw new Error("Board reference changed; refresh before saving");
             if (!this.canWrite(room) || this.isDisposed) return false;
@@ -346,6 +447,7 @@ export class KanbanBoardViewModel
                 "description": card.description,
                 "column": card.column,
                 "archived": card.archived,
+                ...(card.threadId ? { thread_id: card.threadId } : {}),
                 "m.relates_to": { rel_type: RelationType.Reference, event_id: board.rootId },
             });
             if (!this.isDisposed) await this.reload();
@@ -373,6 +475,7 @@ export class KanbanBoardViewModel
             description: editor.description,
             column: previous?.column ?? "todo",
             archived: previous?.archived ?? false,
+            threadId: editor.threadId,
         });
         if (saved && !this.isDisposed) this.cancelEdit();
     };
@@ -401,6 +504,29 @@ export class KanbanBoardViewModel
         if (this.props.client.getRoom(roomId)?.getMyMembership() === "join") {
             this.props.onOpenRoom?.();
             dispatcher.dispatch({ action: Action.ViewRoom, room_id: roomId });
+        }
+    };
+
+    /** Open the native thread panel in the card's own room, including from the recap. */
+    public openThread = async (card: KanbanCard): Promise<void> => {
+        const room = this.props.client.getRoom(card.roomId);
+        if (!room || room.getMyMembership() !== "join" || !card.threadId || this.getSnapshot().busy) return;
+        this.snapshot.merge({ busy: true, error: undefined });
+        try {
+            const root = await resolveThreadRoot(this.props.client, room, card.threadId);
+            if (this.isDisposed || room.getMyMembership() !== "join") return;
+            this.props.rightPanelStore.setCard(
+                { phase: RightPanelPhases.ThreadView, state: { threadHeadEvent: root } },
+                true,
+                room.roomId,
+            );
+            this.props.onOpenRoom?.();
+            dispatcher.dispatch({ action: Action.ViewRoom, room_id: room.roomId });
+        } catch (error) {
+            logger.warn("Unable to open linked board thread", error);
+            if (!this.isDisposed) this.snapshot.merge({ error: _t("matcha_kanban|thread_open_error") });
+        } finally {
+            if (!this.isDisposed) this.snapshot.merge({ busy: false });
         }
     };
 }

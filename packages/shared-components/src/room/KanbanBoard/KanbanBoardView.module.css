@@ -88,11 +88,6 @@ Please see LICENSE in the repository root for full details.
     background: var(--cpd-color-bg-subtle-primary);
     color: var(--cpd-color-text-primary);
 }
-.toolbarDivider {
-    height: var(--cpd-space-4x);
-    width: 1px;
-    background: var(--cpd-color-gray-400);
-}
 .columns {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -172,6 +167,19 @@ Please see LICENSE in the repository root for full details.
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
+.threadLink[data-size="md"] {
+    display: inline-flex;
+    gap: var(--cpd-space-1x);
+    min-height: var(--cpd-space-8x);
+    padding: 0;
+    margin-top: var(--cpd-space-2x);
+    font: var(--cpd-font-body-xs-medium);
+    text-decoration: none;
+}
+.threadLink svg {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+}
 .cardFooter {
     display: flex;
     align-items: center;
@@ -246,8 +254,15 @@ Please see LICENSE in the repository root for full details.
     color: var(--cpd-color-text-secondary);
 }
 .error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-3x);
     color: var(--cpd-color-text-critical-primary);
     border: 1px solid var(--cpd-color-border-critical-primary);
+}
+.error p {
+    margin: 0;
 }
 .setup {
     display: flex;

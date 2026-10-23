@@ -22,6 +22,7 @@ export default meta;
 const cards: KanbanCard[] = [
     {
         id: "one",
+        threadId: "$launch",
         roomId: "project",
         roomName: "Product",
         title: "Review the beta launch checklist",
@@ -93,6 +94,11 @@ const initial: KanbanBoardSnapshot = {
     hasMore: true,
     showArchived: false,
     unreadable: false,
+    threads: [
+        { id: "$launch", title: "Beta launch" },
+        { id: "$design", title: "Design review" },
+    ],
+    threadsLoading: false,
 };
 
 function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> }): React.JSX.Element {
@@ -109,12 +115,16 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
                     roomId: card?.roomId ?? "project",
                     title: card?.title ?? "",
                     description: card?.description ?? "",
+                    threadId: card?.threadId,
                 },
             })),
         ),
         setTitle: (title: string) => setState((value) => ({ ...value, editor: { ...value.editor!, title } })),
         setDescription: (description: string) =>
             setState((value) => ({ ...value, editor: { ...value.editor!, description } })),
+        setThread: (threadId: string) =>
+            setState((value) => ({ ...value, editor: { ...value.editor!, threadId: threadId || undefined } })),
+        openThread: fn(async () => {}),
         cancelEdit: () => setState((value) => ({ ...value, editor: undefined })),
         save: fn(async () =>
             setState((value) => {
@@ -125,7 +135,14 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
                     editor: undefined,
                     cards: card
                         ? value.cards.map((item) =>
-                              item === card ? { ...item, title: editor.title, description: editor.description } : item,
+                              item === card
+                                  ? {
+                                        ...item,
+                                        title: editor.title,
+                                        description: editor.description,
+                                        threadId: editor.threadId,
+                                    }
+                                  : item,
                           )
                         : [
                               ...value.cards,
@@ -135,6 +152,7 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
                                   roomName: "Product",
                                   title: editor.title,
                                   description: editor.description,
+                                  threadId: editor.threadId,
                                   column: "todo",
                                   archived: false,
                                   canEdit: true,

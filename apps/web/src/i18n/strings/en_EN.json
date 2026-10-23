@@ -1694,8 +1694,11 @@
     "matcha_kanban": {
         "archive": "Archive card",
         "archive_hint": "The card will leave the active board for everyone. You can restore it from Archived cards.",
+        "linked_thread_fallback": "Linked thread",
         "load_error": "Some boards could not be loaded. This view may be incomplete. Refresh to try again.",
-        "save_error": "The change could not be saved. Your draft is kept. Check room permissions and encryption, then refresh and retry."
+        "save_error": "The change could not be saved. Your draft is kept. Check room permissions and encryption, then refresh and retry.",
+        "thread_open_error": "This linked thread could not be opened. Check that it still exists in this chat and your encryption keys are available.",
+        "threads_error": "Some threads could not be loaded. Your current link is kept; close and reopen the editor to retry."
     },
     "matcha_reminders": {
         "description": "Enter a delay followed by your reminder, for example “10m Check the build”. Use s for seconds, m for minutes, h for hours, or d for days. The bot will post in this chat even when Element is closed. Use !remind list to see your reminders and !remind cancel ID to cancel one.",
@@ -1713,9 +1716,17 @@
     },
     "matcha_threads": {
         "archive": "Archive thread",
-        "archive_description": "Hide this thread from the selector for everyone using Matcha beta? Messages are kept, and it can be restored from Archived threads. Other Matrix clients can still show it.",
-        "archive_error": "Could not change thread archive status. Check your room permissions and try again.",
-        "load_error": "Could not load threads. Try again."
+        "archive_description": "Hide this thread from the selector for everyone using Matcha beta? Messages are kept, and it can be restored from Thread history. Other Matrix clients can still show it.",
+        "archive_error": "Could not change this thread. Check your message permissions and connection, then try again.",
+        "create_button": "Create thread",
+        "create_error": "Could not finish creating the thread. If its first message appears in General, open that message and choose Reply in thread. No messages were removed.",
+        "create_title": "New thread",
+        "invalid_name": "Enter a thread name between 1 and 100 characters.",
+        "load_error": "Could not load threads. Try again.",
+        "metadata_error": "Some thread details could not be read or decrypted. They cannot be managed until you restore your keys or retry.",
+        "name_label": "Thread name",
+        "rename_error": "Could not rename this thread. Check your message permissions and connection, then try again.",
+        "rename_title": "Rename thread"
     },
     "member_list": {
         "count": {

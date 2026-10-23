@@ -6,6 +6,7 @@ Please see LICENSE in the repository root for full details.
 */
 
 .container {
+    container-type: inline-size;
     border-bottom: 1px solid var(--cpd-color-gray-400);
     flex-shrink: 0;
     min-width: 0;
@@ -13,25 +14,32 @@ Please see LICENSE in the repository root for full details.
 }
 
 .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     box-sizing: border-box;
     min-width: 0;
     min-height: var(--cpd-space-14x);
-    gap: var(--cpd-space-4x);
+    gap: var(--cpd-space-3x);
     padding: var(--cpd-space-2x) var(--cpd-space-5x);
 }
 
-.tabs {
-    gap: var(--cpd-space-1x);
-    overflow-x: auto;
-    min-width: 0;
-    flex: 1;
+.primaryTabs,
+.actions {
+    display: flex;
     align-items: center;
-    scrollbar-width: thin;
+    gap: var(--cpd-space-1x);
 }
 
-.tabs .tab {
+.primaryTabs {
     flex-shrink: 0;
-    max-width: 14rem;
+}
+.actions {
+    min-width: 0;
+}
+
+.container .tab,
+.container .quietButton {
     min-height: var(--cpd-space-9x);
     padding: var(--cpd-space-2x) var(--cpd-space-3x);
     border: 0;
@@ -40,91 +48,248 @@ Please see LICENSE in the repository root for full details.
     color: var(--cpd-color-text-secondary);
     font: var(--cpd-font-body-sm-medium);
     text-decoration: none;
-    transition:
-        background-color 140ms,
-        color 140ms;
+    gap: var(--cpd-space-1x);
+    white-space: nowrap;
 }
 
-.tabs .tab:hover {
+.container .tab:hover,
+.container .quietButton:hover {
     background: var(--cpd-color-bg-action-secondary-hovered);
     color: var(--cpd-color-text-primary);
 }
 
-.tabs .tab[aria-current="page"] {
+.container .tab[aria-current="page"],
+.container .quietButton[aria-expanded="true"] {
     background: var(--cpd-color-bg-subtle-secondary);
     color: var(--cpd-color-text-primary);
     font-weight: var(--cpd-font-weight-semibold);
 }
 
+.container .newButton {
+    min-height: var(--cpd-space-9x);
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
+    font: var(--cpd-font-body-sm-semibold);
+    gap: var(--cpd-space-1x);
+    white-space: nowrap;
+}
+
+.actions svg,
+.rowActions svg {
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+}
+
+.threadTabs {
+    display: flex;
+    align-items: stretch;
+    gap: var(--cpd-space-2x);
+    padding: 0 var(--cpd-space-5x) var(--cpd-space-3x);
+    min-width: 0;
+}
+
+.threadTab {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 15rem;
+    flex: 1 1 0;
+    border: 1px solid var(--cpd-color-gray-400);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+}
+.threadTab[data-selected="true"] {
+    flex-grow: 1.35;
+    border-color: var(--cpd-color-border-success-subtle);
+    background: var(--cpd-color-bg-success-subtle);
+}
+.threadTab .tab {
+    flex: 1;
+    min-width: 0;
+    justify-content: start;
+    border-radius: inherit;
+}
+.threadTab .tab[aria-current="page"] {
+    background: transparent;
+    color: var(--cpd-color-text-action-accent);
+}
+.threadTab .tab > svg {
+    flex-shrink: 0;
+    width: var(--cpd-space-4x);
+    height: var(--cpd-space-4x);
+}
 .tabLabel {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-
-.separator {
+.threadMenu {
     flex-shrink: 0;
-    height: var(--cpd-space-4x);
-    width: 1px;
-    margin-inline: var(--cpd-space-2x);
-    background: var(--cpd-color-gray-400);
-}
-
-.actions {
-    flex-shrink: 0;
-    gap: var(--cpd-space-1x);
-    padding-inline-start: var(--cpd-space-3x);
-    border-inline-start: 1px solid var(--cpd-color-gray-400);
-}
-
-.actions > button {
+    margin-right: var(--cpd-space-1x);
     color: var(--cpd-color-icon-secondary);
-    border-radius: var(--cpd-space-2x);
 }
 
-.actions > button[aria-current="page"],
-.actions > button[aria-expanded="true"] {
-    background: var(--cpd-color-bg-success-subtle);
-    color: var(--cpd-color-text-action-accent);
-}
-
-.expanded {
-    max-height: 12rem;
-    overflow: auto;
-    padding: var(--cpd-space-3x) var(--cpd-space-5x);
+.history {
+    padding: var(--cpd-space-4x) var(--cpd-space-5x);
     border-top: 1px solid var(--cpd-color-gray-400);
     background: var(--cpd-color-bg-subtle-secondary);
 }
-
-.archivedTitle {
-    max-width: 24rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.historyHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: var(--cpd-space-3x);
+    margin-bottom: var(--cpd-space-3x);
 }
-
+.historyHeading {
+    margin: 0;
+    font: var(--cpd-font-body-md-semibold);
+}
 .hint {
+    margin: var(--cpd-space-1x) 0 0;
     color: var(--cpd-color-text-secondary);
 }
+.historyList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 21rem;
+    scrollbar-width: thin;
+    overflow: auto;
+    border: 1px solid var(--cpd-color-gray-400);
+    border-radius: var(--cpd-space-2x);
+    background: var(--cpd-color-bg-canvas-default);
+}
+.historyRow {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+}
+.historyRow + .historyRow {
+    border-top: 1px solid var(--cpd-color-gray-400);
+}
+.historyDetails {
+    min-width: 0;
+    flex: 1;
+}
+.historyDetails .historyTitle {
+    max-width: 100%;
+    justify-content: start;
+    padding: var(--cpd-space-1x) 0;
+    min-height: var(--cpd-space-8x);
+    color: var(--cpd-color-text-primary);
+}
+.historyTitle span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.threadStatus {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    margin: 0;
+    font: var(--cpd-font-body-xs-medium);
+    color: var(--cpd-color-text-secondary);
+}
+.threadStatus::before {
+    content: "";
+    display: block;
+    width: var(--cpd-space-1-5x);
+    height: var(--cpd-space-1-5x);
+    border-radius: 50%;
+    background: var(--cpd-color-icon-success-primary);
+}
+.threadStatus[data-archived="true"]::before {
+    background: var(--cpd-color-icon-secondary);
+}
+.rowActions {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-1x);
+    flex-shrink: 0;
+}
+.historyEmpty {
+    display: flex;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-5x);
+    border: 1px dashed var(--cpd-color-gray-500);
+    border-radius: var(--cpd-space-2x);
+}
+.historyEmpty > svg {
+    width: var(--cpd-space-8x);
+    height: var(--cpd-space-8x);
+    flex-shrink: 0;
+    color: var(--cpd-color-icon-secondary);
+}
+.historyEmpty p {
+    margin: 0;
+}
+.historyFooter {
+    margin-top: var(--cpd-space-2x);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--cpd-space-3x);
+}
+.error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpd-space-3x);
+    padding: var(--cpd-space-3x) var(--cpd-space-5x);
+    border-top: 1px solid var(--cpd-color-gray-400);
+}
+.error p {
+    margin: 0;
+    color: var(--cpd-color-text-critical-primary);
+}
 
-@media (width <= 720px) {
+@container (max-width: 580px) {
     .toolbar {
         flex-wrap: wrap;
         gap: var(--cpd-space-1x);
+        padding-inline: var(--cpd-space-3x);
     }
-
-    .tabs {
+    .primaryTabs {
         flex-basis: 100%;
     }
-
     .actions {
-        margin-inline-start: auto;
-        padding-inline-start: 0;
-        border-inline-start: 0;
+        flex-wrap: wrap;
     }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .tabs .tab {
-        transition: none;
+    .threadTabs {
+        padding-inline: var(--cpd-space-3x);
+        flex-wrap: wrap;
+    }
+    .threadTab {
+        flex-basis: calc(50% - var(--cpd-space-2x));
+        max-width: none;
+    }
+    .threadTab[data-selected="true"] {
+        flex-grow: 1;
+    }
+    .history {
+        padding: var(--cpd-space-3x);
+    }
+    .historyRow {
+        flex-wrap: wrap;
+        gap: 0;
+    }
+    .historyDetails {
+        flex-basis: 100%;
+    }
+    .rowActions {
+        margin-top: var(--cpd-space-1x);
+    }
+    .rowActions .quietButton {
+        padding-left: 0;
+        padding-right: var(--cpd-space-4x);
+    }
+    .historyFooter {
+        flex-direction: column;
+        align-items: start;
+        gap: var(--cpd-space-1x);
     }
 }

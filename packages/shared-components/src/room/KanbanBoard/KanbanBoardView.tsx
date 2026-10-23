@@ -13,8 +13,8 @@ import GridIcon from "@vector-im/compound-design-tokens/assets/web/icons/grid";
 import InfoIcon from "@vector-im/compound-design-tokens/assets/web/icons/info";
 import MoreIcon from "@vector-im/compound-design-tokens/assets/web/icons/overflow-horizontal";
 import PlusIcon from "@vector-im/compound-design-tokens/assets/web/icons/plus";
-import RefreshIcon from "@vector-im/compound-design-tokens/assets/web/icons/restart";
 import RoomIcon from "@vector-im/compound-design-tokens/assets/web/icons/room";
+import ThreadIcon from "@vector-im/compound-design-tokens/assets/web/icons/threads";
 
 import { type ViewModel, useViewModel } from "../../core/viewmodel";
 import { Flex } from "../../core/utils/Flex";
@@ -34,6 +34,7 @@ export interface KanbanCard {
     column: KanbanColumn;
     archived: boolean;
     canEdit: boolean;
+    threadId?: string;
 }
 
 /** Presentation state for one room or the joined-room recap. */
@@ -49,7 +50,10 @@ export interface KanbanBoardSnapshot {
     showArchived: boolean;
     error?: string;
     unreadable: boolean;
-    editor?: { id?: string; roomId: string; title: string; description: string };
+    editor?: { id?: string; roomId: string; title: string; description: string; threadId?: string };
+    threads: { id: string; title: string }[];
+    threadsLoading: boolean;
+    threadError?: string;
 }
 
 /** Board commands; all persistence and permissions belong to the view model. */
@@ -60,12 +64,14 @@ export interface KanbanBoardActions {
     edit: (card?: KanbanCard) => void;
     setTitle: (value: string) => void;
     setDescription: (value: string) => void;
+    setThread: (id: string) => void;
     cancelEdit: () => void;
     save: () => Promise<void>;
     move: (card: KanbanCard, column: KanbanColumn) => Promise<void>;
     archive: (card: KanbanCard, archived: boolean) => Promise<void>;
     toggleArchived: () => void;
     openRoom: (roomId: string) => void;
+    openThread: (card: KanbanCard) => Promise<void>;
 }
 
 /** Contract consumed by the board view. */
@@ -173,21 +179,15 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                         <ArchiveIcon aria-hidden="true" />
                         {state.showArchived ? _t("matcha_kanban|active") : _t("matcha_kanban|archived")}
                     </Button>
-                    <span className={styles.toolbarDivider} aria-hidden="true" />
-                    <IconButton
-                        size="32px"
-                        disabled={disabled}
-                        onClick={vm.reload}
-                        tooltip={_t("matcha_kanban|refresh")}
-                    >
-                        <RefreshIcon />
-                    </IconButton>
                 </Flex>
             </div>
             {state.error && (
-                <Text size="sm" role="alert" className={styles.error}>
-                    {state.error}
-                </Text>
+                <div role="alert" className={styles.error}>
+                    <Text size="sm">{state.error}</Text>
+                    <Button kind="tertiary" size="md" disabled={disabled} onClick={vm.reload}>
+                        {_t("matcha_kanban|retry")}
+                    </Button>
+                </div>
             )}
             {state.unreadable && (
                 <Text size="sm" role="status" className={styles.notice}>
@@ -248,6 +248,34 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                             onChange={(event) => vm.setDescription(event.target.value)}
                         />
                     </label>
+                    <label className={styles.descriptionLabel}>
+                        <Text as="span" size="sm">
+                            {_t("matcha_kanban|linked_thread")}
+                        </Text>
+                        <select
+                            className={styles.statusSelect}
+                            value={state.editor.threadId ?? ""}
+                            disabled={disabled || state.threadsLoading}
+                            onChange={(event) => vm.setThread(event.target.value)}
+                        >
+                            <option value="">{_t("matcha_kanban|no_thread")}</option>
+                            {state.threads.map((thread) => (
+                                <option key={thread.id} value={thread.id}>
+                                    {thread.title}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {state.threadsLoading && (
+                        <Text size="sm" role="status">
+                            {_t("matcha_kanban|loading_threads")}
+                        </Text>
+                    )}
+                    {state.threadError && (
+                        <Text size="sm" role="alert">
+                            {state.threadError}
+                        </Text>
+                    )}
                     <Flex justify="end" gap="var(--cpd-space-2x)">
                         <Button kind="secondary" size="md" disabled={disabled} onClick={vm.cancelEdit}>
                             {_t("matcha_kanban|cancel")}
@@ -298,6 +326,18 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                                                 <Text size="sm" className={styles.description}>
                                                     {card.description}
                                                 </Text>
+                                            )}
+                                            {card.threadId && (
+                                                <Button
+                                                    kind="tertiary"
+                                                    size="md"
+                                                    className={styles.threadLink}
+                                                    disabled={disabled}
+                                                    onClick={() => void vm.openThread(card)}
+                                                >
+                                                    <ThreadIcon aria-hidden="true" />
+                                                    {_t("matcha_kanban|open_thread")}
+                                                </Button>
                                             )}
                                             <div className={styles.cardFooter}>
                                                 {state.universal && (

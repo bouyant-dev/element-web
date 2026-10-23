@@ -55,6 +55,12 @@ declare module "matrix-js-sdk/src/types" {
     }
 
     export interface TimelineEvents {
+        "com.matchahoneylatte.thread.metadata": {
+            "version": 1;
+            "name"?: string;
+            "archived"?: boolean;
+            "m.relates_to"?: { rel_type: string; event_id?: string };
+        };
         "com.matchahoneylatte.kanban.board": { version: 1 };
         "com.matchahoneylatte.kanban.card": {
             "version": 1;

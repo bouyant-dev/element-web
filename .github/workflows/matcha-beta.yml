@@ -53,6 +53,7 @@ jobs:
                   git config user.name 'github-actions[bot]'
                   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
                   git switch --create matcha-verified
+                  echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
                   git merge --no-ff --no-edit -m "Merge upstream $stable into matcha-beta" FETCH_HEAD
                   [[ "$(jq -r .version apps/web/package.json)" == "${stable#v}" ]]
                   sha=$(git rev-parse HEAD)
@@ -84,6 +85,7 @@ jobs:
                     apps/web/src/viewmodels/room/KanbanBoardViewModel.test.ts \
                     apps/web/src/viewmodels/room-list/RoomListViewModel.test.ts \
                     apps/web/src/utils/matcha/reminders.test.ts \
+                    apps/web/src/utils/matcha/threads.test.ts \
                     apps/web/src/components/structures/RoomView.test.tsx \
                     apps/web/src/components/structures/ThreadView.test.tsx
                   pnpm --dir packages/shared-components exec vitest run --project unit \
@@ -140,6 +142,7 @@ jobs:
                   curl --fail --silent http://127.0.0.1:18080/config.json | jq --exit-status '.default_server_config'
 
             - name: Push only the verified merge
+              if: steps.source.outputs.sha != steps.source.outputs.base_sha
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |

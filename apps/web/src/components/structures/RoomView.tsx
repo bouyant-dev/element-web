@@ -241,6 +241,7 @@ export interface IRoomState {
     isPeeking: boolean;
     showRightPanel: boolean;
     matchaBoard?: "room" | "all";
+    matchaBoardThreadId?: string;
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -648,6 +649,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         const newState: Partial<IRoomState> = {
             roomId: roomId ?? undefined,
             matchaBoard: roomId === this.state.roomId ? this.state.matchaBoard : undefined,
+            matchaBoardThreadId: roomId === this.state.roomId ? this.state.matchaBoardThreadId : undefined,
             roomAlias: roomAlias,
             roomLoading: roomLoading,
             roomLoadError,
@@ -1150,12 +1152,13 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         this.setState({
             showRightPanel: roomId ? this.context.rightPanelStore.isOpenForRoom(roomId) : false,
             matchaBoard: threadSelected ? undefined : this.state.matchaBoard,
+            matchaBoardThreadId: threadSelected ? undefined : this.state.matchaBoardThreadId,
         });
     };
 
-    private onMatchaBoardChange = (matchaBoard?: "room" | "all"): void => {
+    private onMatchaBoardChange = (matchaBoard?: "room" | "all", initialThreadId?: string): void => {
         if (matchaBoard) this.context.rightPanelStore.hide(this.state.roomId ?? null);
-        this.setState({ matchaBoard });
+        this.setState({ matchaBoard, matchaBoardThreadId: matchaBoard === "room" ? initialThreadId : undefined });
     };
 
     private onPageUnload = (event: BeforeUnloadEvent): string | undefined => {
@@ -2767,8 +2770,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     {boardInMain && (
                         <main className="mx_RoomView_board">
                             <KanbanBoard
-                                key={this.state.matchaBoard === "room" ? this.state.room.roomId : "all"}
+                                key={`${this.state.matchaBoard === "room" ? this.state.room.roomId : "all"}:${this.state.matchaBoardThreadId ?? ""}`}
                                 room={this.state.matchaBoard === "room" ? this.state.room : undefined}
+                                initialThreadId={this.state.matchaBoardThreadId}
                                 onOpenRoom={this.onMatchaBoardChange}
                             />
                         </main>

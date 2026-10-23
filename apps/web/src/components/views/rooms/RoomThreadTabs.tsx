@@ -22,7 +22,7 @@ export function RoomThreadTabs({
 }: {
     room: Room;
     board?: "room" | "all";
-    onBoardChange: (board?: "room" | "all") => void;
+    onBoardChange: (board?: "room" | "all", initialThreadId?: string) => void;
 }): JSX.Element {
     const client = useMatrixClientContext();
     const { rightPanelStore } = useContext(SDKContext);

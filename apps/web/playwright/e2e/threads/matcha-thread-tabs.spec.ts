@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import { test, expect } from "../../element-web-test";
 import type { Page, TestInfo } from "@playwright/test";
+import { EventType } from "matrix-js-sdk/src/matrix";
 
 async function dismissPreviewPrompts(page: Page): Promise<void> {
     for (const name of ["Later", "Dismiss"]) {
@@ -26,6 +27,11 @@ async function dismissPreviewPrompts(page: Page): Promise<void> {
 async function capturePreview(page: Page, testInfo: TestInfo, filename: string): Promise<void> {
     await dismissPreviewPrompts(page);
     await page.screenshot({ path: testInfo.outputPath(filename), animations: "disabled" });
+}
+
+async function chooseMore(page: Page, label: string): Promise<void> {
+    await page.getByRole("button", { name: "More", exact: true }).click();
+    await page.getByRole("menuitem", { name: label, exact: true }).click();
 }
 
 test.describe("Matcha room thread tabs", () => {
@@ -57,7 +63,10 @@ test.describe("Matcha room thread tabs", () => {
         );
         await page.goto("/#/room/" + roomId);
         const navigation = page.getByRole("navigation", { name: "Room conversations" });
-        await navigation.getByRole("button", { name: "Project plans" }).click();
+        await page
+            .getByRole("navigation", { name: "Open threads" })
+            .getByRole("button", { name: "Project plans", exact: true })
+            .click();
         const threadConversation = page.getByRole("main").getByRole("complementary");
         await expect(threadConversation).toBeVisible();
         const composer = page.getByRole("textbox", { name: "Send an unencrypted message…" });
@@ -65,7 +74,7 @@ test.describe("Matcha room thread tabs", () => {
         await composer.press("Enter");
         await expect(threadConversation.getByText("A reply from the main thread view", { exact: true })).toBeVisible();
         await capturePreview(page, testInfo, "thread-chat-preview.png");
-        await page.getByRole("button", { name: "Set reminder", exact: true }).click();
+        await chooseMore(page, "Set reminder");
         const reminderDialog = page.getByRole("dialog");
         await reminderDialog.getByRole("textbox").fill("10m Review the beta navigation");
         await reminderDialog.getByRole("heading", { name: "Set reminder", exact: true }).click();
@@ -73,13 +82,21 @@ test.describe("Matcha room thread tabs", () => {
         await expect(page.getByRole("tooltip")).toHaveCount(0);
         await capturePreview(page, testInfo, "reminder-preview.png");
         await reminderDialog.getByRole("button", { name: "Cancel", exact: true }).click();
-        await page.getByRole("button", { name: "Archive thread", exact: true }).click();
+        await page.getByRole("button", { name: "Thread actions", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Archive thread", exact: true }).click();
         await page.getByRole("dialog").getByRole("button", { name: "Archive thread", exact: true }).click();
-        await expect(navigation.getByRole("button", { name: "Project plans" })).toHaveCount(0);
+        await expect(
+            page
+                .getByRole("navigation", { name: "Open threads" })
+                .getByRole("button", { name: "Project plans", exact: true }),
+        ).toHaveCount(0);
         await expect(navigation.getByRole("button", { name: "General" })).toHaveAttribute("aria-current", "page");
-        await page.getByRole("button", { name: "Archived threads", exact: true }).click();
+        await page.getByRole("button", { name: "Thread history", exact: true }).click();
         await page.getByRole("button", { name: "Restore thread", exact: true }).click();
-        await navigation.getByRole("button", { name: "Project plans" }).click();
+        await page
+            .getByRole("navigation", { name: "Open threads" })
+            .getByRole("button", { name: "Project plans", exact: true })
+            .click();
         await expect(threadConversation.getByText("First thread reply", { exact: true })).toBeVisible();
         await expect(threadConversation.getByText("A reply from the main thread view", { exact: true })).toBeVisible();
         await navigation.getByRole("button", { name: "General" }).click();
@@ -160,7 +177,7 @@ test.describe("Matcha room thread tabs", () => {
         expect(JSON.stringify(wire)).not.toContain("Ship beta navigation");
         expect(JSON.stringify(wire)).not.toContain("Keep this card content after archiving.");
         await createCard(operations, "Check deployments");
-        await page.getByRole("button", { name: "All boards", exact: true }).click();
+        await chooseMore(page, "All boards");
         await expect(page.getByRole("article", { name: "Ship beta navigation" })).toBeVisible();
         await expect(page.getByRole("article", { name: "Check deployments" })).toBeVisible();
         await capturePreview(page, testInfo, "all-boards-preview.png");
@@ -174,8 +191,165 @@ test.describe("Matcha room thread tabs", () => {
                 .getByRole("button", { name: "General", exact: true }),
         ).toHaveAttribute("aria-current", "page");
         await dismissPreviewPrompts(page);
-        await page.getByRole("button", { name: "All boards", exact: true }).click();
+        await chooseMore(page, "All boards");
         await projectCard.getByRole("button", { name: "Open Project", exact: true }).click();
         await expect(page).toHaveURL((url) => decodeURIComponent(url.hash) === "#/room/" + project);
+    });
+    test("manages named encrypted threads as a regular member and links them to cards", async ({
+        page,
+        app,
+        bot,
+        user,
+    }, testInfo) => {
+        test.setTimeout(120_000);
+        const roomId = await app.client.createRoom({
+            name: "Release planning",
+            initial_state: [
+                { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } },
+            ],
+        });
+        await app.client.inviteUser(roomId, bot.credentials!.userId);
+        await bot.joinRoom(roomId);
+        await page.goto("/#/room/" + roomId);
+        const roomNavigation = page.getByRole("navigation", { name: "Room conversations" });
+        const threadTabs = page.getByRole("navigation", { name: "Open threads" });
+        await roomNavigation.getByRole("button", { name: "Board", exact: true }).click();
+        await page.getByRole("button", { name: "Create board", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Add card", exact: true })).toBeEnabled();
+        await app.client.evaluate(
+            async (client, args) => {
+                const powers = await client.getStateEvent(args.roomId, args.powerType, "");
+                await client.sendStateEvent(
+                    args.roomId,
+                    args.powerType,
+                    {
+                        ...powers,
+                        users: { ...powers.users, [args.admin]: 100, [client.getSafeUserId()]: 0 },
+                    },
+                    "",
+                );
+            },
+            { roomId, admin: bot.credentials!.userId, powerType: EventType.RoomPowerLevels as const },
+        );
+        await expect
+            .poll(() =>
+                app.client.evaluate(
+                    (client, id) =>
+                        client
+                            .getRoom(id)!
+                            .currentState.maySendStateEvent(
+                                "com.matchahoneylatte.thread_archive",
+                                client.getSafeUserId(),
+                            ),
+                    roomId,
+                ),
+            )
+            .toBe(false);
+        await roomNavigation.getByRole("button", { name: "General", exact: true }).click();
+
+        const newThread = async (name: string): Promise<void> => {
+            await page.getByRole("button", { name: "New thread", exact: true }).click();
+            const dialog = page.getByRole("dialog", { name: "New thread" });
+            await dialog.getByRole("textbox", { name: "Thread name" }).fill(name);
+            await dialog.getByRole("button", { name: "Create thread", exact: true }).click();
+            await expect(threadTabs.getByRole("button", { name, exact: true })).toHaveAttribute("aria-current", "page");
+        };
+        await newThread("Release planning");
+        const rootId = await app.client.evaluate(
+            (client, id) =>
+                client
+                    .getRoom(id)!
+                    .getThreads()
+                    .find((thread) => thread.rootEvent?.getContent().body === "Release planning")!.id,
+            roomId,
+        );
+        await page.reload();
+        await expect(threadTabs.getByRole("button", { name: "Release planning", exact: true })).toBeVisible();
+        await threadTabs.getByRole("button", { name: "Release planning", exact: true }).click();
+        await page.getByRole("button", { name: "Thread actions", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Rename thread", exact: true }).click();
+        const rename = page.getByRole("dialog", { name: "Rename thread" });
+        await rename.getByRole("textbox", { name: "Thread name" }).fill("Release Q4");
+        await rename.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toBeVisible();
+        await page.reload();
+        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toBeVisible();
+
+        for (let i = 1; i <= 5; i++) await newThread("Topic " + i);
+        await expect(threadTabs.getByRole("button", { name: /^(Release Q4|Topic [1-5])$/ })).toHaveCount(4);
+        await expect(threadTabs.getByRole("button", { name: "Topic 5", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Thread history", exact: true }).click();
+        const history = page.getByRole("region", { name: "Thread history", exact: true });
+        await expect(history.getByRole("button", { name: /^(Release Q4|Topic [1-5])$/ })).toHaveCount(6);
+        await history.getByRole("button", { name: "Release Q4", exact: true }).click();
+        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveAttribute(
+            "aria-current",
+            "page",
+        );
+        await expect(threadTabs.getByRole("button", { name: /^(Release Q4|Topic [1-5])$/ })).toHaveCount(4);
+
+        await page.getByRole("button", { name: "Thread actions", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Link to board", exact: true }).click();
+        await expect(page.getByRole("combobox", { name: "Linked thread (optional)" })).toHaveValue(rootId);
+        await page.getByRole("textbox", { name: "Card title", exact: true }).fill("Ship release");
+        await page.getByRole("button", { name: "Save card", exact: true }).click();
+        const card = page.getByRole("article", { name: "Ship release", exact: true });
+        await expect(card.getByRole("button", { name: "Open thread", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Refresh board", exact: true })).toHaveCount(0);
+        await capturePreview(page, testInfo, "linked-board-preview.png");
+        await card.getByRole("button", { name: "Open thread", exact: true }).click();
+        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveAttribute(
+            "aria-current",
+            "page",
+        );
+        await page.getByRole("button", { name: "Thread actions", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Archive thread", exact: true }).click();
+        await page.getByRole("dialog").getByRole("button", { name: "Archive thread", exact: true }).click();
+        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveCount(0);
+        await page.reload();
+        await page.getByRole("button", { name: "Thread history", exact: true }).click();
+        const archived = history
+            .getByRole("listitem")
+            .filter({ has: page.getByRole("button", { name: "Release Q4", exact: true }) });
+        await expect(archived).toContainText("Archived");
+        await capturePreview(page, testInfo, "thread-history-live-preview.png");
+        await archived.getByRole("button", { name: "Restore thread", exact: true }).click();
+        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toBeVisible();
+        await expect(page.getByRole("main").getByRole("complementary")).toBeVisible();
+
+        const wire = await app.client.evaluate(
+            async (client, args) => {
+                const root = await client.fetchRoomEvent(args.roomId, args.rootId);
+                const replies = await client.fetchRelations(args.roomId, args.rootId, "m.thread", null, { limit: 20 });
+                const metadata = await client.fetchRelations(args.roomId, args.rootId, "m.reference", null, {
+                    limit: 20,
+                });
+                const board = await client.getStateEvent(args.roomId, "com.matchahoneylatte.kanban", "");
+                const cards = await client.fetchRelations(args.roomId, board.event_id, "m.reference", null, {
+                    limit: 20,
+                });
+                return { root, replies, metadata, cards };
+            },
+            { roomId, rootId },
+        );
+        expect(wire.root.type).toBe("m.room.encrypted");
+        expect(wire.replies.chunk.length).toBeGreaterThan(0);
+        expect(wire.metadata.chunk.length).toBeGreaterThan(0);
+        for (const batch of [wire.replies, wire.metadata, wire.cards]) {
+            expect(batch.chunk.every((event) => event.type === "m.room.encrypted")).toBe(true);
+        }
+        expect(JSON.stringify(wire)).not.toContain("Release Q4");
+        expect(JSON.stringify(wire)).not.toContain("Release planning");
+        expect(JSON.stringify(wire.cards)).not.toContain(rootId);
+        const otherRoom = await app.client.createRoom({ name: "Operations" });
+        await page.goto("/#/room/" + otherRoom);
+        await chooseMore(page, "All boards");
+        await card.getByRole("button", { name: "Open thread", exact: true }).click();
+        await expect(page).toHaveURL((url) => decodeURIComponent(url.hash) === "#/room/" + roomId);
+        await expect(threadTabs.getByRole("button", { name: "Release Q4", exact: true })).toHaveAttribute(
+            "aria-current",
+            "page",
+        );
+        expect(user.userId).toBeTruthy();
     });
 });
