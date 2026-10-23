@@ -1,0 +1,19 @@
+{
+    "name": "matcha-reminder-bot",
+    "private": true,
+    "type": "module",
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "start": "node src/main.ts",
+        "test": "node --test src/*.test.ts"
+    },
+    "dependencies": {
+        "@matrix-org/matrix-sdk-crypto-nodejs": "0.4.0",
+        "matrix-bot-sdk": "0.8.0"
+    },
+    "allowScripts": {
+        "@matrix-org/matrix-sdk-crypto-nodejs@0.4.0": true
+    }
+}
