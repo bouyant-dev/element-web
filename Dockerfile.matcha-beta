@@ -1,0 +1,12 @@
+# Copyright 2026 David
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+# Please see LICENSE in the repository root for full details.
+
+# Build context is apps/web/webapp, after the tested production build.
+ARG ELEMENT_VERSION
+FROM vectorim/element-web:${ELEMENT_VERSION}
+
+USER root
+RUN rm -rf /app
+COPY --chown=nginx:nginx . /app
+USER nginx

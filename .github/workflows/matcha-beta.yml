@@ -1,0 +1,169 @@
+# Copyright 2026 David
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+# Please see LICENSE in the repository root for full details.
+
+name: Matcha beta
+
+on:
+    push:
+        branches: [matcha-beta]
+    schedule:
+        - cron: "23 20 * * *" # 03:23 Asia/Jakarta
+    workflow_dispatch: {}
+
+concurrency:
+    group: matcha-beta
+    cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+    publish:
+        if: github.repository == 'bouyant-dev/element-web' && github.ref == 'refs/heads/matcha-beta'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 90
+        permissions:
+            contents: write
+            packages: write
+        defaults:
+            run:
+                shell: bash
+        env:
+            CI: true
+            NX_DAEMON: false
+            NX_DEFAULT_OUTPUT_STYLE: stream-without-prefixes
+            NODE_OPTIONS: --max-old-space-size=6144
+            IMAGE: ghcr.io/bouyant-dev/element-web
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  ref: matcha-beta
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Merge the latest official stable release locally
+              id: source
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  stable=$(gh api repos/element-hq/element-web/releases/latest \
+                    --jq 'select(.draft == false and .prerelease == false) | .tag_name')
+                  [[ "$stable" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                  git fetch --no-tags https://github.com/element-hq/element-web.git "refs/tags/$stable"
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                  git switch --create matcha-verified
+                  git merge --no-ff --no-edit -m "Merge upstream $stable into matcha-beta" FETCH_HEAD
+                  [[ "$(jq -r .version apps/web/package.json)" == "${stable#v}" ]]
+                  sha=$(git rev-parse HEAD)
+                  echo "stable=$stable" >> "$GITHUB_OUTPUT"
+                  echo "sha=$sha" >> "$GITHUB_OUTPUT"
+                  echo "version=$stable-matcha-${sha:0:12}" >> "$GITHUB_OUTPUT"
+                  echo "tag=sha-$sha-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+            - uses: ./.github/actions/setup-node-pnpm
+              with:
+                  node-version: "24"
+
+            - name: Install locked dependencies
+              run: ./scripts/layered.sh
+
+            - name: Check generated translations and workflow syntax
+              run: |
+                  pnpm i18n
+                  git diff --exit-code
+                  pnpm exec action-validator .github/workflows/matcha-beta.yml
+
+            - name: Install Chromium for component and navigation tests
+              run: pnpm exec playwright install --with-deps chromium
+
+            - name: Check thread navigation and existing room behavior
+              run: |
+                  pnpm test:unit \
+                    apps/web/src/viewmodels/room/RoomThreadTabsViewModel.test.ts \
+                    apps/web/src/viewmodels/room/KanbanBoardViewModel.test.ts \
+                    apps/web/src/viewmodels/room-list/RoomListViewModel.test.ts \
+                    apps/web/src/utils/matcha/reminders.test.ts \
+                    apps/web/src/components/structures/RoomView.test.tsx \
+                    apps/web/src/components/structures/ThreadView.test.tsx
+                  pnpm --dir packages/shared-components exec vitest run --project unit \
+                    src/room/RoomThreadTabs/RoomThreadTabsView.test.tsx \
+                    src/room/KanbanBoard/KanbanBoardView.test.tsx
+                  pnpm --dir apps/web lint:types
+                  pnpm --dir packages/shared-components lint:types
+
+            - name: Check the persistent reminder service
+              working-directory: tools/matcha-reminder-bot
+              run: |
+                  npm ci --no-audit --no-fund
+                  npm test
+
+            - name: Build Element Web
+              env:
+                  VERSION: ${{ steps.source.outputs.version }}
+              run: |
+                  cp apps/web/config.sample.json apps/web/config.json
+                  pnpm --dir apps/web build
+
+            - name: Exercise thread tabs in a browser
+              run: |
+                  pnpm --dir apps/web test:playwright -- \
+                    playwright/e2e/threads/matcha-thread-tabs.spec.ts --project=Chrome
+
+            - name: Build the runtime image
+              env:
+                  ELEMENT_VERSION: ${{ steps.source.outputs.stable }}
+                  SOURCE_SHA: ${{ steps.source.outputs.sha }}
+                  IMAGE_TAG: ${{ steps.source.outputs.tag }}
+              run: |
+                  docker build --file Dockerfile.matcha-beta \
+                    --build-arg "ELEMENT_VERSION=$ELEMENT_VERSION" \
+                    --label "org.opencontainers.image.source=https://github.com/bouyant-dev/element-web" \
+                    --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+                    --tag "$IMAGE:$IMAGE_TAG" apps/web/webapp
+
+            - name: Check the runtime and configuration mount
+              env:
+                  IMAGE_TAG: ${{ steps.source.outputs.tag }}
+                  SOURCE_VERSION: ${{ steps.source.outputs.version }}
+              run: |
+                  docker run --detach --name matcha-runtime --publish 127.0.0.1:18080:80 \
+                    --volume "$PWD/apps/web/config.json:/app/config.json:ro" "$IMAGE:$IMAGE_TAG"
+                  trap 'docker rm --force matcha-runtime >/dev/null' EXIT
+                  for attempt in {1..30}; do
+                    if curl --fail --silent http://127.0.0.1:18080/version > "$RUNNER_TEMP/matcha-version"; then
+                      break
+                    fi
+                    sleep 1
+                  done
+                  [[ "$(cat "$RUNNER_TEMP/matcha-version")" == "$SOURCE_VERSION" ]]
+                  curl --fail --silent http://127.0.0.1:18080/config.json | jq --exit-status '.default_server_config'
+
+            - name: Push only the verified merge
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  git diff --exit-code
+                  gh auth setup-git
+                  git push origin HEAD:refs/heads/matcha-beta
+
+            - name: Publish the verified image
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  IMAGE_TAG: ${{ steps.source.outputs.tag }}
+                  SOURCE_VERSION: ${{ steps.source.outputs.version }}
+              run: |
+                  printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+                  docker push "$IMAGE:$IMAGE_TAG"
+                  docker tag "$IMAGE:$IMAGE_TAG" "$IMAGE:beta"
+                  docker push "$IMAGE:beta"
+                  echo "Published $SOURCE_VERSION as $IMAGE:$IMAGE_TAG and $IMAGE:beta" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Keep failed browser diagnostics
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: matcha-beta-browser-failure
+                  path: apps/web/playwright/test-results
+                  if-no-files-found: ignore
+                  retention-days: 7
