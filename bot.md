@@ -17,10 +17,10 @@ synced with official stable releases, not upgrading Synapse.
 ## Implemented behavior
 
 - Favourites is the first room filter. Beta defaults `RoomList.showSections` to false; existing account preferences can override defaults.
-- Per-chat General and thread tabs above messages. Selected threads reuse Element's native thread timeline, encryption, composer, attachments and receipts in the main area.
-- Archive/restore removes threads from beta's selector for everyone and preserves their messages. Other Matrix clients can still show these threads. Room state permissions govern archive/restore.
+- Per-chat General and up to four thread tabs. New thread creates a named native thread; Thread history shows all active and archived threads with rename/archive/restore controls. Selected threads reuse Element's native thread timeline, encryption, composer, attachments and receipts in the main area.
+- Archive/restore removes threads from beta's selector for everyone and preserves their messages. Other Matrix clients can still show these threads. Normal message permissions govern new archive/rename metadata; old archive state remains readable.
 - Per-chat Kanban: To do, In progress, Done; card title and optional description; create/edit, accessible status selector, action menu, confirmed archive and restore.
-- All boards collects cards only from currently joined chats, labels each source chat, and opens its source. Leaving a chat immediately removes its cards.
+- All boards collects cards only from currently joined chats, labels each source chat, and opens its source. Cards can link/unlink a thread, and Open thread works from room and universal boards. Leaving a chat immediately removes its cards. Background updates preserve cards and drafts without a refresh icon or loading flash.
 - Reminder action sends an encrypted Matrix command to a dedicated bot. The bot persists schedules independently of browsers and posts in the same chat at the due time.
 - No destructive thread deletion, automatic bot invitations, or real-room test messages are authorised.
 
@@ -53,12 +53,13 @@ published build: upstream uses that flag to disable minification for fast CI tes
 - `apps/web/playwright/e2e/threads/matcha-thread-tabs.spec.ts`: integrated synthetic scenarios and preview captures.
 - `tools/matcha-reminder-bot`: standalone Node 24 service, its own npm lockfile and Dockerfile.
 
-Thread archive: state event `com.matchahoneylatte.thread_archive`, state key = root event ID, content `{archived:boolean}`.
-No title/body is written to state and no redaction is performed.
+Thread metadata: encrypted timeline event `com.matchahoneylatte.thread.metadata`, related to the native root with `m.reference`, containing `{version:1,name?:string,archived?:boolean}`. Reads resolve the latest independent field patches in server order. Legacy state `com.matchahoneylatte.thread_archive` is read only as a fallback. No new title/body/archive flag is written to room state and no redaction is performed.
+
+New thread creation sends the named root plus a hidden custom `m.thread` bootstrap event. That establishes native server aggregation before any user reply and survives reload; it counts as one protocol reply but adds no duplicate visible starter message. Renaming changes beta metadata, not the original message. Metadata reads and board thread choices use bounded concurrency; history decryption must not trigger a refetch loop.
 
 Board pointer: state event `com.matchahoneylatte.kanban`, empty state key, `{version:1,event_id:"$board-root"}`.
 Initial setup requires room state permission. Root timeline type is `com.matchahoneylatte.kanban.board`.
-Card revisions use `com.matchahoneylatte.kanban.card` with version, card_id, title, description, column, archived and an
+Card revisions use `com.matchahoneylatte.kanban.card` with version, card_id, title, description, column, archived, optional encrypted thread_id and an
 `m.reference` relation to the root. SDK encryption applies to timeline payloads in encrypted rooms. Latest valid
 server-ordered revision per card wins; simultaneous edits to one card use last-write-wins. Initial loading is bounded
 to 100 revisions per board; partial history is labelled and Load older cards retrieves more.
@@ -105,10 +106,14 @@ Do not use screenshot fixtures as evidence of live deployment or live reminder d
 
 ## Deployment status
 
-Beta was deployed successfully from the local minified build `v1.12.32-matcha-6aea90d`, image `sha256:4f170624dcef5baa5953268cd59bf13b9d3760efd3101d8f1120d70c37552592`, container `element-web-beta`, loopback port83. HTTPS `/version` and `/config.json` were verified. A signed-in user session loaded a real production chat with Board, All boards and Set reminder controls. Both clients use `https://matrix.matchahoneylatte.com`. Main Element remains1.12.32; Synapse process identity/start time remained unchanged.
+Beta currently serves **`v1.12.32-matcha-cb0e435`**, built and tested locally, then uploaded directly. It runs as `element-web-beta` from `local/element-web-beta:cb0e435` on loopback port84. Image identity: `sha256:a94ce63f199bb8e1e3185e51029161ebc5ae2bcc9684cb020bc91f6000bab57d`. Release files: `/opt/element-web-beta/releases/cb0e435`; `current` points there. Public HTTPS `/version` and production homeserver configuration verified after routing.
 
-Reminder service is deployed, persistent and running; source matches commit `e258dd7`. Separate disposable Synapse verification proved encrypted commands, acknowledgements and due delivery, including exactly-once delivery after a graceful restart. No production chats were used for test messages. First corrected GitHub workflow run39933437398 succeeded; source default branch is `bouyant-dev/element-web:matcha-beta`.
+The previous client is retained as `element-web-beta-rollback-6aea90d` on port83. Its nginx configuration is backed up at `/root/element-web-beta-backups/pre-cb0e435/nginx.conf`. Roll back only beta by restoring that proxy configuration, validating nginx and gracefully reloading; keep all Matrix data and bot storage. Main Element remains official1.12.32; Synapse process identity/start time stayed unchanged.
 
-Current follow-up (requested after using beta): working shared archive for ordinary chat members, create named threads, editable names, at most4 thread tabs, explicit New thread / Thread history buttons, threads linked to board cards, and silent board background refresh without loading flashes or a refresh icon. Implement/test/build locally and deploy beta directly; do not wait on GitHub CI. Do not touch main Element or Synapse configuration/version.
+Current source commit `cb0e435` contains the functional changes; `2710da0` adds the final test fixture/acknowledgement checks without changing application code. All source is pushed to `bouyant-dev/element-web:matcha-beta`. The first previous-release GitHub workflow run39933437398 succeeded. Current deployments use local builds and do not wait for GitHub CI. No server auto-update timer exists; image publication does not automatically replace the running beta.
 
-New thread names/archive metadata are being moved to encrypted timeline revisions `com.matchahoneylatte.thread.metadata` with m.reference relation to the native root; retain old archive-state fallback. New named roots need a hidden native m.thread metadata reply so they survive server/client reload. Cards gain optional encrypted `thread_id`, retaining version1 compatibility. Root owns RoomView integration and E2Es; thread_navigation owns metadata/model; board_design owns thread presentation; thread_board_links owns card links and silent refresh. All changes currently uncommitted since722297d.
+Latest validation:108 application/helper tests,16 Chromium view tests, types/lint, minified build, and three integrated browser scenarios passed. The ordinary-member encrypted case verifies named thread creation before user replies and reload, rename/reload, six threads with four tabs and complete history, archive/reload/restore at state power0, encrypted linked card fields, and correct source-thread opening from All boards. Tests wait for General selection and the server's decrypted archive acknowledgement before reloading; tab disappearance alone is ambiguous with a four-tab cap.
+
+Reminder service remains deployed and persistent; source matches commit `e258dd7`. Separate disposable Synapse verification proved encrypted commands, acknowledgements and due delivery, including exactly-once delivery after a graceful restart. No production chats were used for test messages. The new thread/board release did not modify the reminder service.
+
+Deployment tooling: when streaming a local bash script through stdin, use `ssh -n` for remote commands that need no input, otherwise SSH can consume subsequent scp commands. Verify the remote tarball SHA256 and Dockerfile existence before building. Use `COPYFILE_DISABLE=1 tar --no-xattrs` on macOS to avoid irrelevant Apple provenance headers. Do not remove browser encryption storage to refresh the app.
