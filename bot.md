@@ -14,32 +14,27 @@ Main <https://element.matchahoneylatte.com> remains official Element Web **1.12.
 Leave Synapse's version and configuration alone. The user's update requirement means keeping the **Element fork**
 synced with official stable releases, not upgrading Synapse.
 
+## Checkpoint and branch state
+
+Before starting these changes, the deployed Personal release was checkpointed at
+`8d7b478424b6d374c77b71dcbdc08be2eefcc308` on `checkpoint/personal-2026-10-23` and `main`, both pushed to
+`bouyant-dev/element-web`. The fork had no `main`, so it was created at that complete checkpoint. New work was
+implemented on `feature/room-docs` and fast-forwarded into `matcha-beta`; `main` remains the requested checkpoint.
+
+The user reviewed vertical and horizontal navigation mockups and explicitly selected **B: one horizontal row**.
+The synthetic interactive comparison is in the sibling `element-web-artifacts/navigation-design/` directory,
+served locally at port6018. The deployed UI uses that horizontal direction, with a scrollable thread strip.
+
 ## Implemented behavior
 
-### Checkpoint and current extension
-
-The deployed Personal release is checkpointed at `8d7b478424b6d374c77b71dcbdc08be2eefcc308` on
-`checkpoint/personal-2026-10-23` and `main`, both pushed to `bouyant-dev/element-web`. The fork had no `main`, so it was
-created at that complete checkpoint rather than overwriting another branch. New work is on `feature/room-docs`.
-
-The user requested per-chat collaborative Markdown Docs, structured reminders (relative delay or exact local time,
-separate message), one native thread per Kanban card, and per-card deadlines/reminder actions. After reviewing both
-designs, the user explicitly chose **B: one horizontal navigation row**. The approved comparison is in the sibling
-`element-web-artifacts/navigation-design/` directory, served locally at port6018 with synthetic data.
-
-Docs uses stable open-source CodeMirror6, Yjs13 and y-codemirror.next, with the existing sanitized Markdown preview.
-The integration transports encrypted append-only Yjs updates through Matrix; no separate document service or
-Synapse changes are planned. New reminder UI requires the backward-compatible bot update before frontend rollout.
-Implementation and testing are in progress; the Deployment status below remains authoritative until updated.
-
 - Favourites is the first room filter. Beta defaults `RoomList.showSections` to false; existing account preferences can override defaults.
-- Per-chat General and up to four thread tabs. New thread creates a named native thread; Thread history shows all active and archived threads with rename/archive/restore controls. Selected threads reuse Element's native thread timeline, encryption, composer, attachments and receipts in the main area.
-- Archive/restore removes threads from beta's selector for everyone and preserves their messages. Other Matrix clients can still show these threads. Normal message permissions govern new archive/rename metadata; old archive state remains readable.
-- Per-chat Kanban: To do, In progress, Done; card title and optional description; create/edit, accessible status selector, action menu, confirmed archive and restore.
-- All boards collects cards only from currently joined chats, labels each source chat, and opens its source. Cards can link/unlink a thread, and Open thread works from room and universal boards. Leaving a chat immediately removes its cards. Background updates preserve cards and drafts without a refresh icon or loading flash.
-- Personal is a permanent beta sidebar entry next to Home, available without selecting a chat. `#/personal` opens the same joined-chat Kanban recap and survives reload. Cards remain shared with their original chats; Personal does not create a Matrix room or private copies. It cannot be removed or reordered with spaces.
-- Reminder action sends an encrypted Matrix command to a dedicated bot. The bot persists schedules independently of browsers and posts in the same chat at the due time.
-- No destructive thread deletion, automatic bot invitations, or real-room test messages are authorised.
+- One horizontal room toolbar contains General, Board, Docs, up to four thread tabs, New thread, Thread history and More. History includes every loaded active/archived thread and pagination. Named native threads support creation, rename, archive and restore. The native main-area timeline keeps encryption, composer, attachments and receipts.
+- Each native thread projects to one Kanban card on its chat board. Add card creates its named thread. Changing a linked card title renames the thread, and archive/restore is shared with the thread selector without deleting messages. Existing standalone cards remain; duplicate older linked-card content is available under Earlier linked cards.
+- Cards have optional local deadlines and a Remind action. Remind prefills the card title, deadline and thread permalink. Due dates alone do not schedule a bot message. The card records a requested time only; the bot acknowledgement confirms scheduling. Changing a deadline does not silently reschedule an already requested reminder.
+- Personal is a permanent sidebar entry directly after Home. `#/personal` collects cards from currently joined chats, labels their source and opens the source chat/thread. Leaving a chat removes its cards. Background board updates preserve cards and drafts without refresh icons or loading flashes. Personal edits the shared source cards, not private copies.
+- Docs is one shared Markdown document per chat. It uses CodeMirror6, Yjs13 and the official y-codemirror.next binding, with Element's existing sanitized Markdown preview. Normal joined members with send permission can edit together; no state-event privilege is required. Preview, explicit save/error status, retry and Markdown download are available. Existing room encryption/access rules apply.
+- Reminders have Remind me in (seconds/minutes/hours/days) or Remind me at (local date/time plus visible timezone), and a separate Message field. The dedicated bot persists schedules and posts in the same chat even when browsers are closed.
+- No destructive thread deletion, automatic bot invitations, real-room test messages, or Synapse changes are authorised.
 
 ## Design and verification
 
@@ -48,14 +43,15 @@ rendered UI **8.2/10** across full Element, narrow, mobile and dark-mode screens
 cards, source-chat chips, status dropdowns and a single compact room toolbar. Do not reintroduce stacked action links.
 This score is a visual review, not full assistive-technology certification.
 
-Before deployment, the following checks passed:
+For the Docs/task/reminder release, these checks passed:
 
-- Production-mode preview build `1.12.32-matcha-preview`.
-- 75 focused thread/application tests, 94 room-list tests, 11 Kanban model tests and 6 reminder UI tests.
-- 12 Chromium board/thread view tests, typechecks, formatting and focused lint.
-- 2 integrated browser scenarios with synthetic Matrix accounts/rooms: thread reply/archive/restore, card creation/movement/archive/restore, cross-chat recap and same/different-chat source navigation.
-- The encrypted-room browser scenario fetched raw server events and confirmed board roots/card updates were encrypted, without plaintext card titles or descriptions.
-- 15 reminder-service tests inside Linux Node 24, covering durable schedules, cancellation, retries, invitation controls, encryption dispatch and sync durability.
+- 161 focused app, model, transport, rendering, native-room and thread tests.
+- 23 Chromium component tests, application/browser TypeScript checks, focused lint/format and workflow syntax.
+- 17 reminder-service tests in Linux Node24, repeated against the actual deployment runtime image.
+- Four integrated browser scenarios on disposable Synapse; after the final CSS polish, the Docs and named-thread/card scenarios passed again against the final minified bundle.
+- Two independently signed-in ordinary members edited the same encrypted Docs document simultaneously, converged, reloaded, and recovered a failed send across General/Docs navigation. Raw stored updates were encrypted, with no document text or custom document state.
+- Thread/card tests cover one-to-one automatic projection, rename/archive/restore, deadlines, a prefilled reminder request, cross-chat Personal navigation, and encrypted card deadline/request metadata.
+- A separate real encrypted reminder test on Node24.22.1 delivered a12-second relative reminder and an exact UTC reminder after graceful bot restart. The exact reminder arrived758ms after its deadline; both commands, acknowledgements and deliveries were Megolm-encrypted. Two records ended sent with one observed delivery each and no decryption failures. Evidence: `/Users/david/.codex/tmp/matcha-reminder-exact.mktb6oex/evidence.json`.
 
 A deployment build must use a unique commit-derived VERSION and normal minification. Do not set CI_PACKAGE for the
 published build: upstream uses that flag to disable minification for fast CI test bundles.
@@ -67,7 +63,9 @@ published build: upstream uses that flag to disable minification for fast CI tes
 - `apps/web/src/viewmodels/room/RoomThreadTabsViewModel.ts`: thread tabs and archive.
 - `apps/web/src/viewmodels/room/KanbanBoardViewModel.ts`: boards, permissions, pagination and decrypted revisions.
 - `packages/shared-components/src/room/{RoomThreadTabs,KanbanBoard}`: presentation, stories and component tests.
-- `apps/web/src/utils/matcha/reminders.ts`: existing-dialog reminder flow and input validation.
+- `apps/web/src/utils/matcha/reminders.ts`, `RoomReminderViewModel.ts`, and `packages/shared-components/src/room/RoomReminder`: structured reminder form, validation and bot requests.
+- `apps/web/src/utils/matcha/documents.ts`, `RoomDocsViewModel.ts`, `components/views/rooms/RoomDocs.tsx`, and `packages/shared-components/src/room/RoomDocs`: live Markdown transport, model, CodeMirror adapter and preview.
+- `apps/web/playwright/e2e/room/matcha-docs.spec.ts`: two-user encrypted collaboration and failed-send recovery proof.
 - `apps/web/playwright/e2e/threads/matcha-thread-tabs.spec.ts`: integrated synthetic scenarios and preview captures.
 - `tools/matcha-reminder-bot`: standalone Node 24 service, its own npm lockfile and Dockerfile.
 
@@ -77,12 +75,16 @@ New thread creation sends the named root plus a hidden custom `m.thread` bootstr
 
 Board pointer: state event `com.matchahoneylatte.kanban`, empty state key, `{version:1,event_id:"$board-root"}`.
 Initial setup requires room state permission. Root timeline type is `com.matchahoneylatte.kanban.board`.
-Card revisions use `com.matchahoneylatte.kanban.card` with version, card_id, title, description, column, archived, optional encrypted thread_id and an
+Card revisions use `com.matchahoneylatte.kanban.card` with version, card_id, title, description, column, archived, optional encrypted thread_id, due_at and reminder_requested fields and an
 `m.reference` relation to the root. SDK encryption applies to timeline payloads in encrypted rooms. Latest valid
 server-ordered revision per card wins; simultaneous edits to one card use last-write-wins. Initial loading is bounded
 to 100 revisions per board; partial history is labelled and Load older cards retrieves more.
 
-Reminder commands: `!remind 10m Check build`, `!remind list`, `!remind cancel ID`. Units s/m/h/d, positive delay up to
+Docs updates use encrypted timeline type `com.matchahoneylatte.docs.update`, related by `m.reference` to the room's existing `m.room.create` event. Payloads contain version1, doc main, update_id, kind update/chunk/commit, chunks, optional chunk/data and the relation. Yjs updates are base64 encoded; large updates split into16KiB parts and become valid only after a commit marker. Every accessible history page is replayed before editing; missing keys, committed parts or Yjs causal dependencies keep editing disabled until recovered. The Yjs13.6.33 causal guard uses its typed pendingStructs/pendingDs fields; revalidate it before changing that dependency.
+
+Docs sends debounce500ms, and Saved appears only after server acknowledgement. Pending sessions survive tab/room navigation and retry the same Matrix transaction IDs. Unacknowledged edits are memory-only: an unload warning and Markdown download provide recovery, but forced browser/process exit can still lose unsent edits. Never describe this as durable offline storage. Do not optimize history by trusting a snapshot timestamp or putting document plaintext in room state.
+
+Reminder commands: `!remind 10m Check build`, `!remind at <UTC ISO timestamp> Check build`, `!remind list`, `!remind cancel ID`. Units s/m/h/d, positive delay up to
 365 days, text up to 2,000 characters. The requester can list/cancel only their own reminders in that room. The UI
 requires explicit confirmation before inviting the bot and waits for it to join before sending a scheduling command.
 A command is not confirmed scheduled until the bot acknowledges it.
@@ -124,17 +126,13 @@ Do not use screenshot fixtures as evidence of live deployment or live reminder d
 
 ## Deployment status
 
-Beta currently serves **`v1.12.32-matcha-d82de45`**, built and tested locally, then uploaded directly. It runs as `element-web-beta` from `local/element-web-beta:d82de45` on loopback port85. Image identity: `sha256:bbd182c0060eac690c4bd0df0e020de8dd6a6fb294b1b2e59c801152e1da2cfb`. Release files: `/opt/element-web-beta/releases/d82de45`; `current` points there. Public HTTPS `/version`, healthy container, and production homeserver configuration verified after routing. Personal is directly reachable at `https://beta-element.matchahoneylatte.com/#/personal`.
+Beta currently serves **`v1.12.32-matcha-aa12001102`**, built and tested locally, then uploaded directly. Container `element-web-beta` uses `local/element-web-beta:aa12001102` on loopback port86. Image identity: `sha256:cd987e73b4173be1cd23bd2fa9f14f4f2e27ea4d76395b549960eeb8c6ed83ef`. Release `/opt/element-web-beta/releases/aa12001102`; `current` points there. The uploaded archive SHA256 is `1a6e15d37d5eed65ef52e800c6f51f7558c22d10e72c6a86b1bfc3bbb2484d00`. Public HTTPS version, healthy container and production homeserver/feature configuration verified.
 
-The previous client is retained as `element-web-beta-rollback-cb0e435` on port84. Its nginx configuration is backed up at `/root/element-web-beta-backups/pre-d82de45/nginx.conf`. Roll back only beta by restoring that proxy configuration, validating nginx and gracefully reloading; keep all Matrix data and bot storage. Main Element remains official1.12.32; Synapse process identity/start time stayed unchanged (PID1931360, 2026-10-22 06:43:31UTC).
+The previous UI is retained as `element-web-beta-rollback-d82de45` on port85. Its nginx backup is `/root/element-web-beta-backups/pre-aa12001102/nginx.conf`. Restore that proxy config, validate nginx and gracefully reload to roll back only the UI. No Matrix data migration or deletion is needed. Main Element remains official1.12.32; Synapse stayed PID1931360 with start time2026-10-22 06:43:31UTC.
 
-Current application source commit `d82de45` contains Personal; `e318cec` corrects only a browser-test selector. Both are pushed to `bouyant-dev/element-web:matcha-beta`. Current deployments use local builds and do not wait for GitHub CI. No server auto-update timer exists; image publication does not automatically replace the running beta.
+The updated reminder bot was deployed before the UI and remains backward-compatible with old relative commands. It runs `local/matcha-reminder:263d79baa3`, image `sha256:86b1c49b211d2dd634a25f8521925e7a6f24f29b31afac7de169c7b5128ef16b`, with the same protected environment and `/var/lib/matcha-reminder/data` bind mount. It started successfully with zero restarts. Existing record counts, crypto directory and sync file were verified preserved; no schema migration was added. The stopped rollback container is `matcha-reminder-bot-rollback-82969ef255f57ad6`. Protected backup `/root/matcha-reminder-backups/pre-263d79baa3` contains the old container configuration and consistent data archive. Never run two bot containers against the shared store. Do not restore an old data archive over newer schedules merely to roll back code.
 
-Latest validation:185 relevant application/store/model unit tests, app and browser TypeScript checks, focused lint/format, workflow syntax, minified build, and all three integrated browser scenarios passed. Personal coverage includes Home entry, multiple joined chats, selected state, reload/direct route, source-chat navigation, linked-thread navigation and return Home. One browser assertion initially scoped a `has` locator through an ancestor; the corrected role/name selector passed against the unchanged production bundle. The rendered Personal recap was visually inspected using synthetic test data.
-
-The prior encrypted ordinary-member scenario remains covered: named thread creation before user replies and reload, rename/reload, six threads with four tabs and complete history, archive/reload/restore at state power0, encrypted linked card fields, and correct source-thread opening from Personal. Tests wait for General selection and the server's decrypted archive acknowledgement before reloading; tab disappearance alone is ambiguous with a four-tab cap.
-
-Reminder service remains deployed and persistent; source matches commit `e258dd7`. Separate disposable Synapse verification proved encrypted commands, acknowledgements and due delivery, including exactly-once delivery after a graceful restart. No production chats were used for test messages. The new thread/board release did not modify the reminder service.
+Functional source commit `263d79baa3` and final UI polish `aa12001102` are pushed to `bouyant-dev/element-web:matcha-beta`. Live rollout used the local build and did not wait for GitHub CI. The upstream workflow publishes images but does not automatically replace the running beta; no server auto-update timer exists.
 
 Deployment tooling: when streaming a local bash script through stdin, use `ssh -n` for remote commands that need no input, otherwise SSH can consume subsequent scp commands. Verify the remote tarball SHA256 and Dockerfile existence before building. Use `COPYFILE_DISABLE=1 tar --no-xattrs` on macOS to avoid irrelevant Apple provenance headers. Do not remove browser encryption storage to refresh the app.
 
