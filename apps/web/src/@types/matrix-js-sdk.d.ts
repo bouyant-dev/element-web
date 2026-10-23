@@ -34,6 +34,8 @@ declare module "matrix-js-sdk/src/types" {
     }
 
     export interface StateEvents {
+        "com.matchahoneylatte.thread_archive": { archived: boolean };
+        "com.matchahoneylatte.kanban": { version: 1; event_id: string };
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 
@@ -53,6 +55,16 @@ declare module "matrix-js-sdk/src/types" {
     }
 
     export interface TimelineEvents {
+        "com.matchahoneylatte.kanban.board": { version: 1 };
+        "com.matchahoneylatte.kanban.card": {
+            "version": 1;
+            "card_id": string;
+            "title": string;
+            "description": string;
+            "column": "todo" | "doing" | "done";
+            "archived": boolean;
+            "m.relates_to": { rel_type: "m.reference"; event_id: string };
+        };
         "io.element.performance_metric": {
             "io.element.performance_metrics": {
                 forEventId: string;

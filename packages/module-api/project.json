@@ -5,7 +5,7 @@
     "targets": {
         "build": {
             "cache": true,
-            "inputs": ["src"],
+            "inputs": ["src", "{workspaceRoot}/packages/shared-types/lib/**/*.d.ts"],
             "outputs": ["{projectRoot}/lib"],
             "command": "vite build",
             "options": { "cwd": "packages/module-api" }

@@ -1691,6 +1691,32 @@
     "markdown_viewer": {
         "open": "Open Markdown"
     },
+    "matcha_kanban": {
+        "archive": "Archive card",
+        "archive_hint": "The card will leave the active board for everyone. You can restore it from Archived cards.",
+        "load_error": "Some boards could not be loaded. This view may be incomplete. Refresh to try again.",
+        "save_error": "The change could not be saved. Your draft is kept. Check room permissions and encryption, then refresh and retry."
+    },
+    "matcha_reminders": {
+        "description": "Enter a delay followed by your reminder, for example “10m Check the build”. Use s for seconds, m for minutes, h for hours, or d for days. The bot will post in this chat even when Element is closed. Use !remind list to see your reminders and !remind cancel ID to cancel one.",
+        "error_description": "Check that you can send messages, that the bot has joined and is verified for encrypted messages, and that the connection is working. Then try again.",
+        "error_title": "Could not request reminder",
+        "invalid": "Use a positive delay up to 365 days followed by a message of 1–2000 characters.",
+        "invite_description": "Invite %(bot)s to this chat? The bot will be able to read new messages in this chat so it can schedule and deliver reminders.",
+        "invite_title": "Invite reminder bot",
+        "placeholder": "Delay and reminder",
+        "requested_description": "Wait for the bot’s confirmation in this chat before relying on this reminder. Sending the request alone does not confirm it was scheduled.",
+        "requested_title": "Reminder requested",
+        "schedule": "Request reminder",
+        "title": "Set reminder",
+        "waiting": "The invitation is pending. Once the bot joins, choose Set reminder again. Only authorised inviters can add the bot."
+    },
+    "matcha_threads": {
+        "archive": "Archive thread",
+        "archive_description": "Hide this thread from the selector for everyone using Matcha beta? Messages are kept, and it can be restored from Archived threads. Other Matrix clients can still show it.",
+        "archive_error": "Could not change thread archive status. Check your room permissions and try again.",
+        "load_error": "Could not load threads. Try again."
+    },
     "member_list": {
         "count": {
             "one": "%(count)s Member",

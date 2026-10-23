@@ -19,6 +19,7 @@ interface IProps {
     description: React.ReactNode;
     value: string;
     placeholder?: string;
+    usePlaceholderAsHint?: boolean;
     button?: string;
     busyMessage: TranslationKey;
     focus: boolean;
@@ -119,6 +120,7 @@ export default class TextInputDialog extends React.Component<IProps, IState> {
                                 ref={this.field}
                                 type="text"
                                 label={this.props.placeholder}
+                                usePlaceholderAsHint={this.props.usePlaceholderAsHint}
                                 value={this.state.value}
                                 onChange={this.onChange}
                                 onValidate={this.props.validator ? this.onValidate : undefined}

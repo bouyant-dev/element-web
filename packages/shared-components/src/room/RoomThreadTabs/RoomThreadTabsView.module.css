@@ -1,0 +1,130 @@
+/*
+Copyright 2026 David
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.container {
+    border-bottom: 1px solid var(--cpd-color-gray-400);
+    flex-shrink: 0;
+    min-width: 0;
+    background: var(--cpd-color-bg-canvas-default);
+}
+
+.toolbar {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: var(--cpd-space-14x);
+    gap: var(--cpd-space-4x);
+    padding: var(--cpd-space-2x) var(--cpd-space-5x);
+}
+
+.tabs {
+    gap: var(--cpd-space-1x);
+    overflow-x: auto;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    scrollbar-width: thin;
+}
+
+.tabs .tab {
+    flex-shrink: 0;
+    max-width: 14rem;
+    min-height: var(--cpd-space-9x);
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    border: 0;
+    border-radius: var(--cpd-space-2x);
+    background: transparent;
+    color: var(--cpd-color-text-secondary);
+    font: var(--cpd-font-body-sm-medium);
+    text-decoration: none;
+    transition:
+        background-color 140ms,
+        color 140ms;
+}
+
+.tabs .tab:hover {
+    background: var(--cpd-color-bg-action-secondary-hovered);
+    color: var(--cpd-color-text-primary);
+}
+
+.tabs .tab[aria-current="page"] {
+    background: var(--cpd-color-bg-subtle-secondary);
+    color: var(--cpd-color-text-primary);
+    font-weight: var(--cpd-font-weight-semibold);
+}
+
+.tabLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.separator {
+    flex-shrink: 0;
+    height: var(--cpd-space-4x);
+    width: 1px;
+    margin-inline: var(--cpd-space-2x);
+    background: var(--cpd-color-gray-400);
+}
+
+.actions {
+    flex-shrink: 0;
+    gap: var(--cpd-space-1x);
+    padding-inline-start: var(--cpd-space-3x);
+    border-inline-start: 1px solid var(--cpd-color-gray-400);
+}
+
+.actions > button {
+    color: var(--cpd-color-icon-secondary);
+    border-radius: var(--cpd-space-2x);
+}
+
+.actions > button[aria-current="page"],
+.actions > button[aria-expanded="true"] {
+    background: var(--cpd-color-bg-success-subtle);
+    color: var(--cpd-color-text-action-accent);
+}
+
+.expanded {
+    max-height: 12rem;
+    overflow: auto;
+    padding: var(--cpd-space-3x) var(--cpd-space-5x);
+    border-top: 1px solid var(--cpd-color-gray-400);
+    background: var(--cpd-color-bg-subtle-secondary);
+}
+
+.archivedTitle {
+    max-width: 24rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hint {
+    color: var(--cpd-color-text-secondary);
+}
+
+@media (width <= 720px) {
+    .toolbar {
+        flex-wrap: wrap;
+        gap: var(--cpd-space-1x);
+    }
+
+    .tabs {
+        flex-basis: 100%;
+    }
+
+    .actions {
+        margin-inline-start: auto;
+        padding-inline-start: 0;
+        border-inline-start: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tabs .tab {
+        transition: none;
+    }
+}

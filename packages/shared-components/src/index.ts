@@ -7,6 +7,7 @@
  */
 
 // Components
+export * from "./room/RoomThreadTabs";
 export * from "./audio/Clock";
 export * from "./audio/PlayPauseButton";
 export * from "./audio/SeekBar";
@@ -112,3 +113,4 @@ export * from "./status/UserStatusIconView";
 export * from "./devtools/CustomThemesView";
 // MVVM
 export * from "./core/viewmodel";
+export * from "./room/KanbanBoard";

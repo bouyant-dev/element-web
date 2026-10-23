@@ -8,9 +8,11 @@ Please see LICENSE files in the repository root for full details.
 
 import type * as Matrix from "matrix-js-sdk/src/matrix";
 import { type SettingLevel } from "../src/settings/SettingLevel";
+import { type Config } from "@element-hq/element-web-module-api";
 
 declare global {
     interface Window {
+        mxReactSdkConfig: Config;
         mxMatrixClientPeg: {
             get(): Matrix.MatrixClient;
         };

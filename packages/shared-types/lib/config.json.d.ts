@@ -16,6 +16,11 @@ import { ClientWellKnown } from "./matrix";
  * All fields are optional here, consumers should validate that fields are present before assuming otherwise
  */
 export interface WebConfigJson {
+    /** Show General, shared thread tabs, and boards in the Matcha beta client. */
+    matcha_thread_tabs?: boolean;
+    /** Matrix user ID of the optional server-side reminder bot. */
+    matcha_reminder_bot?: string;
+
     // dev note: while true that this is arbitrary JSON, it's valuable to enforce that all
     // config options are documented for "find all usages" sort of searching.
 

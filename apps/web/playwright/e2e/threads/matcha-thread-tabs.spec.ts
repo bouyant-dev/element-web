@@ -1,0 +1,181 @@
+/*
+Copyright 2026 David
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+import { test, expect } from "../../element-web-test";
+import type { Page, TestInfo } from "@playwright/test";
+
+async function dismissPreviewPrompts(page: Page): Promise<void> {
+    for (const name of ["Later", "Dismiss"]) {
+        const toastAction = page.getByRole("button", { name, exact: true });
+        if (await toastAction.isVisible()) {
+            await toastAction.click();
+            await expect(toastAction).not.toBeVisible();
+        }
+    }
+    const introduction = page.getByRole("dialog").filter({ hasText: "Introducing Sections" });
+    if (await introduction.isVisible()) {
+        await introduction.getByRole("button", { name: "Ok", exact: true }).click();
+        await expect(introduction).not.toBeVisible();
+    }
+}
+
+async function capturePreview(page: Page, testInfo: TestInfo, filename: string): Promise<void> {
+    await dismissPreviewPrompts(page);
+    await page.screenshot({ path: testInfo.outputPath(filename), animations: "disabled" });
+}
+
+test.describe("Matcha room thread tabs", () => {
+    test.use({
+        displayName: "Alice",
+        viewport: { width: 1440, height: 900 },
+        config: { matcha_thread_tabs: true, setting_defaults: { "language": "en-GB", "RoomList.showSections": false } },
+        botCreateOpts: { displayName: "Bob", autoAcceptInvites: true },
+    });
+
+    test("switches conversations, sends a thread reply, archives and restores without deleting messages", async ({
+        page,
+        app,
+        bot,
+    }, testInfo) => {
+        const roomId = await app.client.createRoom({ name: "Product & Engineering" });
+        await app.client.evaluate((client, id) => client.setRoomTag(id, "m.favourite"), roomId);
+        await app.client.inviteUser(roomId, bot.credentials!.userId);
+        await bot.joinRoom(roomId);
+        const root = await bot.sendMessage(roomId, "Project plans");
+        await bot.sendMessage(roomId, "First thread reply", root.event_id);
+        const design = await bot.sendMessage(roomId, "Design review");
+        await bot.sendMessage(roomId, "Navigation mockups are ready for review.", design.event_id);
+        const release = await bot.sendMessage(roomId, "Release checklist");
+        await bot.sendMessage(roomId, "Check the beta before sharing it with the team.", release.event_id);
+        await page.evaluate(
+            (botUserId) => Object.assign(window.mxReactSdkConfig, { matcha_reminder_bot: botUserId }),
+            bot.credentials!.userId,
+        );
+        await page.goto("/#/room/" + roomId);
+        const navigation = page.getByRole("navigation", { name: "Room conversations" });
+        await navigation.getByRole("button", { name: "Project plans" }).click();
+        const threadConversation = page.getByRole("main").getByTestId("right-panel");
+        await expect(threadConversation).toBeVisible();
+        const composer = page.getByRole("textbox", { name: "Send an unencrypted message…" });
+        await composer.fill("A reply from the main thread view");
+        await composer.press("Enter");
+        await expect(threadConversation.getByText("A reply from the main thread view", { exact: true })).toBeVisible();
+        await capturePreview(page, testInfo, "thread-chat-preview.png");
+        await page.getByRole("button", { name: "Set reminder", exact: true }).click();
+        const reminderDialog = page.getByRole("dialog");
+        await reminderDialog.getByRole("textbox").fill("10m Review the beta navigation");
+        await reminderDialog.getByRole("heading", { name: "Set reminder", exact: true }).click();
+        await expect(reminderDialog.getByRole("button", { name: "Request reminder", exact: true })).toBeEnabled();
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
+        await capturePreview(page, testInfo, "reminder-preview.png");
+        await reminderDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+        await page.getByRole("button", { name: "Archive thread", exact: true }).click();
+        await page.getByRole("dialog").getByRole("button", { name: "Archive thread", exact: true }).click();
+        await expect(navigation.getByRole("button", { name: "Project plans" })).toHaveCount(0);
+        await expect(navigation.getByRole("button", { name: "General" })).toHaveAttribute("aria-current", "page");
+        await page.getByRole("button", { name: "Archived threads", exact: true }).click();
+        await page.getByRole("button", { name: "Restore thread", exact: true }).click();
+        await navigation.getByRole("button", { name: "Project plans" }).click();
+        await expect(threadConversation.getByText("First thread reply", { exact: true })).toBeVisible();
+        await expect(threadConversation.getByText("A reply from the main thread view", { exact: true })).toBeVisible();
+        await navigation.getByRole("button", { name: "General" }).click();
+        await expect(composer).toBeVisible();
+    });
+
+    test("shares room cards, archives and restores them, and recaps cards across joined rooms", async ({
+        page,
+        app,
+        user,
+    }, testInfo) => {
+        expect(user.userId).toBeTruthy();
+        const project = await app.client.createRoom({
+            name: "Project",
+            initial_state: [
+                {
+                    type: "m.room.encryption",
+                    state_key: "",
+                    content: { algorithm: "m.megolm.v1.aes-sha2" },
+                },
+            ],
+        });
+        const operations = await app.client.createRoom({ name: "Operations" });
+        await app.client.evaluate((client, id) => client.setRoomTag(id, "m.favourite"), project);
+        const createCard = async (roomId: string, title: string): Promise<void> => {
+            await page.goto("/#/room/" + roomId);
+            await page
+                .getByRole("navigation", { name: "Room conversations" })
+                .getByRole("button", { name: "Board", exact: true })
+                .click();
+            await page.getByRole("button", { name: "Create board", exact: true }).click();
+            await page.getByRole("button", { name: "Add card", exact: true }).click();
+            await page.getByRole("textbox", { name: "Card title" }).fill(title);
+            await page
+                .getByRole("textbox", { name: "Description (optional)" })
+                .fill("Keep this card content after archiving.");
+            await page.getByRole("button", { name: "Save card", exact: true }).click();
+            await expect(page.getByRole("article", { name: title })).toBeVisible();
+        };
+        await createCard(project, "Ship beta navigation");
+        for (const title of ["Review thread layout", "Connect the test workspace"]) {
+            await page.getByRole("button", { name: "Add card", exact: true }).click();
+            await page.getByRole("textbox", { name: "Card title" }).fill(title);
+            await page.getByRole("button", { name: "Save card", exact: true }).click();
+            await expect(page.getByRole("article", { name: title })).toBeVisible();
+        }
+        await page
+            .getByRole("article", { name: "Connect the test workspace" })
+            .getByRole("combobox", { name: "Status for Connect the test workspace" })
+            .selectOption("done");
+        const projectCard = page.getByRole("article", { name: "Ship beta navigation" });
+        await projectCard.getByRole("combobox", { name: "Status for Ship beta navigation" }).selectOption("doing");
+        await expect(
+            page
+                .getByRole("region", { name: "In progress", exact: true })
+                .getByRole("article", { name: "Ship beta navigation" }),
+        ).toBeVisible();
+        await expect(page.getByRole("button", { name: "Add card", exact: true })).toBeEnabled();
+        await capturePreview(page, testInfo, "room-board-preview.png");
+        await projectCard.getByRole("button", { name: "Actions for Ship beta navigation" }).click();
+        await page.getByRole("menuitem", { name: "Archive card", exact: true }).click();
+        await page.getByRole("dialog").getByRole("button", { name: "Archive card", exact: true }).click();
+        await expect(projectCard).toHaveCount(0);
+        await page.getByRole("button", { name: "Archived cards", exact: true }).click();
+        await projectCard.getByRole("button", { name: "Actions for Ship beta navigation" }).click();
+        await page.getByRole("menuitem", { name: "Restore card", exact: true }).click();
+        await page.getByRole("button", { name: "Active cards", exact: true }).click();
+        await expect(projectCard).toContainText("Keep this card content after archiving.");
+        const wire = await app.client.evaluate(async (client, roomId) => {
+            const state = await client.getStateEvent(roomId, "com.matchahoneylatte.kanban", "");
+            const root = await client.fetchRoomEvent(roomId, state.event_id);
+            const updates = await client.fetchRelations(roomId, state.event_id, "m.reference", null, { limit: 50 });
+            return { state, root, updates };
+        }, project);
+        expect(wire.root.type).toBe("m.room.encrypted");
+        expect(wire.updates.chunk.length).toBeGreaterThan(0);
+        expect(wire.updates.chunk.every((event) => event.type === "m.room.encrypted")).toBe(true);
+        expect(JSON.stringify(wire)).not.toContain("Ship beta navigation");
+        expect(JSON.stringify(wire)).not.toContain("Keep this card content after archiving.");
+        await createCard(operations, "Check deployments");
+        await page.getByRole("button", { name: "All boards", exact: true }).click();
+        await expect(page.getByRole("article", { name: "Ship beta navigation" })).toBeVisible();
+        await expect(page.getByRole("article", { name: "Check deployments" })).toBeVisible();
+        await capturePreview(page, testInfo, "all-boards-preview.png");
+        await page
+            .getByRole("article", { name: "Check deployments" })
+            .getByRole("button", { name: "Open Operations", exact: true })
+            .click();
+        await expect(
+            page
+                .getByRole("navigation", { name: "Room conversations" })
+                .getByRole("button", { name: "General", exact: true }),
+        ).toHaveAttribute("aria-current", "page");
+        await dismissPreviewPrompts(page);
+        await page.getByRole("button", { name: "All boards", exact: true }).click();
+        await projectCard.getByRole("button", { name: "Open Project", exact: true }).click();
+        await expect(page).toHaveURL((url) => decodeURIComponent(url.hash) === "#/room/" + project);
+    });
+});

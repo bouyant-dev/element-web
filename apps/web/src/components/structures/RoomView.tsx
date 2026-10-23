@@ -64,6 +64,9 @@ import defaultDispatcher from "../../dispatcher/dispatcher";
 import * as Rooms from "../../Rooms";
 import MainSplit from "./MainSplit";
 import RightPanel from "./RightPanel";
+import SdkConfig from "../../SdkConfig";
+import { RoomThreadTabs } from "../views/rooms/RoomThreadTabs";
+import { KanbanBoard } from "../views/rooms/KanbanBoard";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
 import SettingsStore from "../../settings/SettingsStore";
@@ -237,6 +240,7 @@ export interface IRoomState {
     showApps: boolean;
     isPeeking: boolean;
     showRightPanel: boolean;
+    matchaBoard?: "room" | "all";
     // error object, as from the matrix client/server API
     // If we failed to load information about the room,
     // store the error here.
@@ -643,6 +647,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
         const newState: Partial<IRoomState> = {
             roomId: roomId ?? undefined,
+            matchaBoard: roomId === this.state.roomId ? this.state.matchaBoard : undefined,
             roomAlias: roomAlias,
             roomLoading: roomLoading,
             roomLoadError,
@@ -1138,9 +1143,19 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
 
     private onRightPanelStoreUpdate = (): void => {
         const { roomId } = this.state;
+        const threadSelected =
+            roomId &&
+            this.context.rightPanelStore.isOpenForRoom(roomId) &&
+            this.context.rightPanelStore.currentCardForRoom(roomId).phase === RightPanelPhases.ThreadView;
         this.setState({
             showRightPanel: roomId ? this.context.rightPanelStore.isOpenForRoom(roomId) : false,
+            matchaBoard: threadSelected ? undefined : this.state.matchaBoard,
         });
+    };
+
+    private onMatchaBoardChange = (matchaBoard?: "room" | "all"): void => {
+        if (matchaBoard) this.context.rightPanelStore.hide(this.state.roomId ?? null);
+        this.setState({ matchaBoard });
     };
 
     private onPageUnload = (event: BeforeUnloadEvent): string | undefined => {
@@ -2210,6 +2225,7 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
      */
     private onFocus = (): void => {
         if (this.props.enableReadReceiptsAndMarkersOnActivity) return;
+        if (SdkConfig.get("matcha_thread_tabs") && this.messagePanel?.props.hidden) return;
 
         void this.messagePanel?.sendReadReceipts();
         void this.messagePanel?.updateReadMarker();
@@ -2538,7 +2554,21 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
         // if we have search results, we keep the messagepanel (so that it preserves its
         // scroll state), but hide it.
         let searchResultsPanel;
-        let hideMessagePanel = false;
+        const showThreadTabs =
+            !!SdkConfig.get("matcha_thread_tabs") &&
+            !this.props.hideHeader &&
+            !this.props.hideRightPanel &&
+            myMembership === KnownMembership.Join;
+        const threadInMain =
+            showThreadTabs &&
+            !this.state.matchaBoard &&
+            !isRoomEncryptionLoading &&
+            this.state.showRightPanel &&
+            this.context.rightPanelStore.currentCardForRoom(this.state.room.roomId).phase ===
+                RightPanelPhases.ThreadView &&
+            !this.state.search;
+        const boardInMain = showThreadTabs && !!this.state.matchaBoard && !this.state.search;
+        let hideMessagePanel = threadInMain || boardInMain;
 
         if (this.state.search) {
             searchResultsPanel = (
@@ -2588,11 +2618,14 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                         ref={this.gatherTimelinePanelRef}
                         timelineSet={this.state.room.getUnfilteredTimelineSet()}
                         showReadReceipts={this.state.showReadReceipts}
-                        manageReadReceipts={!this.state.isPeeking}
+                        manageReadReceipts={!this.state.isPeeking && !threadInMain && !boardInMain}
                         sendReadReceiptOnLoad={
-                            !this.state.wasContextSwitch && this.props.enableReadReceiptsAndMarkersOnActivity
+                            !threadInMain &&
+                            !boardInMain &&
+                            !this.state.wasContextSwitch &&
+                            this.props.enableReadReceiptsAndMarkersOnActivity
                         }
-                        manageReadMarkers={!this.state.isPeeking}
+                        manageReadMarkers={!this.state.isPeeking && !threadInMain && !boardInMain}
                         hidden={hideMessagePanel}
                         highlightedEventId={highlightedEventId}
                         eventId={this.state.initialEventId}
@@ -2718,6 +2751,31 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                 );
             }
         }
+        if (showThreadTabs && mainSplitContentType === MainSplitContentType.Timeline) {
+            mainSplitBody = (
+                <>
+                    <RoomThreadTabs
+                        key={this.state.room.roomId}
+                        room={this.state.room}
+                        board={this.state.matchaBoard}
+                        onBoardChange={this.onMatchaBoardChange}
+                    />
+                    <div className="mx_RoomView_generalTimeline" hidden={threadInMain || boardInMain}>
+                        {mainSplitBody}
+                    </div>
+                    {threadInMain && <main className="mx_RoomView_threadTimeline">{rightPanel}</main>}
+                    {boardInMain && (
+                        <main className="mx_RoomView_board">
+                            <KanbanBoard
+                                key={this.state.matchaBoard === "room" ? this.state.room.roomId : "all"}
+                                room={this.state.matchaBoard === "room" ? this.state.room : undefined}
+                                onOpenRoom={this.onMatchaBoardChange}
+                            />
+                        </main>
+                    )}
+                </>
+            );
+        }
         const mainSplitContentClasses = classNames("mx_RoomView_body", mainSplitContentClassName);
 
         let sizeKey: string | undefined;
@@ -2751,7 +2809,11 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     )}
                     <ErrorBoundary>
                         <MainSplit
-                            panel={rightPanel}
+                            panel={
+                                threadInMain && mainSplitContentType === MainSplitContentType.Timeline
+                                    ? undefined
+                                    : rightPanel
+                            }
                             sizeKey={sizeKey}
                             defaultSize={defaultSize}
                             analyticsRoomType={analyticsRoomType}
