@@ -10,7 +10,7 @@ import { RoomEvent, type MatrixClient, type Room } from "matrix-js-sdk/src/matri
 import type * as Y from "yjs";
 
 import { getRoomDocumentSession, type RoomDocumentSession, type RoomDocError } from "../../utils/matcha/documents";
-import { renderMarkdown } from "../../utils/renderMarkdown";
+import { renderDocumentMarkdown } from "../../utils/matcha/renderDocumentMarkdown";
 import { _t } from "../../languageHandler";
 import { SpaceDocumentCatalog } from "../../utils/matcha/documentCatalog";
 
@@ -110,7 +110,7 @@ export class RoomDocsViewModel extends BaseViewModel<RoomDocsSnapshot, RoomDocsP
         if (this.isDisposed || this.getSnapshot().mode === "edit") return;
         const markdown = this.getMarkdown();
         this.renderedMarkdown = markdown;
-        this.snapshot.merge({ html: renderMarkdown(markdown) });
+        this.snapshot.merge({ html: renderDocumentMarkdown(markdown) });
     };
     /** Shared text passed directly to the official Yjs CodeMirror binding. */
     public getText = (): Y.Text => this.session.text;

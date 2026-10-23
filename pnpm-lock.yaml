@@ -685,6 +685,9 @@ importers:
       maplibre-gl:
         specifier: 6.10.0
         version: 6.10.0
+      marked:
+        specifier: 16.4.2
+        version: 16.4.2
       matrix-encrypt-attachment:
         specifier: ^1.0.3
         version: 1.0.3
