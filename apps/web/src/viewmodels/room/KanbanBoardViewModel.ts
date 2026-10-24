@@ -160,6 +160,8 @@ export class KanbanBoardViewModel
     private historyDirty = false;
     /** Events this board could not decrypt; keys arriving for one of them start a reload. */
     private failedIds = new Set<string>();
+    /** Events this board sent and already reloaded for; their sync echoes are not news. */
+    private ownEchoes = new Set<string>();
 
     public constructor(props: KanbanBoardProps) {
         super(props, {
@@ -291,6 +293,7 @@ export class KanbanBoardViewModel
     };
 
     private onEvent = (event: MatrixEvent): void => {
+        if (this.ownEchoes.delete(event.getId() ?? "")) return;
         const roomId = event.getRoomId() ?? "";
         const room = this.props.client.getRoom(roomId);
         if (!room || room.getMyMembership() !== "join" || (this.props.room && this.props.room !== room)) return;
@@ -300,6 +303,16 @@ export class KanbanBoardViewModel
         if (!rootId) return;
         const relation = event.getRelation();
         const target = relation?.event_id ?? "";
+        const board = this.boards.get(roomId);
+        if (relation?.rel_type === RelationType.Thread && board?.threads.has(target)) {
+            // A reply to a card's thread can only add a participant; reload only for a thread new to the board.
+            const sender = event.getSender();
+            const participants = board.participants.get(target) ?? new Set<string>();
+            if (!sender || event.isRedacted() || participants.has(sender)) return;
+            board.participants.set(target, participants.add(sender));
+            this.publish();
+            return;
+        }
         if (
             event.getType() === THREAD_METADATA_EVENT ||
             relation?.rel_type === RelationType.Thread ||
@@ -307,7 +320,7 @@ export class KanbanBoardViewModel
             rootId === target ||
             // An encrypted metadata patch is recognised by its cleartext relation to a thread, before decryption.
             (relation?.rel_type === RelationType.Reference &&
-                (!!room.getThread(target) || !!this.boards.get(roomId)?.threads.has(target)))
+                (!!room.getThread(target) || !!board?.threads.has(target)))
         ) {
             if (this.readingHistory > 0) this.historyDirty = true;
             else this.scheduleReload();
@@ -322,9 +335,14 @@ export class KanbanBoardViewModel
     };
 
     private onState = (event: MatrixEvent): void => {
-        if (event.getType() === KANBAN_STATE_EVENT || event.getType() === EventType.RoomPowerLevels) {
+        const roomId = event.getRoomId() ?? "";
+        if (this.props.room && roomId !== this.props.room.roomId) return;
+        if (event.getType() === KANBAN_STATE_EVENT) {
             this.publish();
             this.scheduleReload();
+        } else if (event.getType() === EventType.RoomPowerLevels && (this.props.room || this.boards.has(roomId))) {
+            // Power levels only change what this user may do, which publish() recomputes.
+            this.publish();
         }
     };
 
@@ -554,10 +572,9 @@ export class KanbanBoardViewModel
                     cards: new Map(),
                     projected: new Map(),
                     threads: new Map(),
-                    participants:
-                        previousBoard?.rootId === rootId
-                            ? new Map([...previousBoard.participants].map(([id, users]) => [id, new Set(users)]))
-                            : new Map(),
+                    // Shared, not copied: participant sets only grow, and a live reply added to the old board
+                    // during this reload must survive it.
+                    participants: previousBoard?.rootId === rootId ? previousBoard.participants : new Map(),
                     participantPages:
                         previousBoard?.rootId === rootId ? new Map(previousBoard.participantPages) : new Map(),
                     unreadable: false,
@@ -740,7 +757,7 @@ export class KanbanBoardViewModel
                 );
                 if (duplicate) throw new Error("Thread already has a board card");
                 const root = await resolveThreadRoot(client, room, card.threadId);
-                if (threadPatch) await updateThreadMetadata(client, room, root, threadPatch);
+                if (threadPatch) this.ownEchoes.add(await updateThreadMetadata(client, room, root, threadPatch));
                 const metadata = await readThreadMetadata(client, room, root);
                 card = {
                     ...card,
@@ -749,7 +766,7 @@ export class KanbanBoardViewModel
                 };
             }
             if (!this.canWrite(room) || this.isDisposed) return false;
-            await client.sendEvent(room.roomId, KANBAN_CARD_EVENT, {
+            const { event_id: eventId } = await client.sendEvent(room.roomId, KANBAN_CARD_EVENT, {
                 "version": 1,
                 "card_id": card.id,
                 "title": card.title.trim(),
@@ -769,6 +786,9 @@ export class KanbanBoardViewModel
                     : {}),
                 "m.relates_to": { rel_type: RelationType.Reference, event_id: board.rootId },
             });
+            // The reload below reads what we sent, so neither the echo nor a refresh it already queued is needed.
+            this.ownEchoes.add(eventId);
+            clearTimeout(this.refreshTimer);
             if (!this.isDisposed) await this.reload();
             return true;
         } catch (error) {

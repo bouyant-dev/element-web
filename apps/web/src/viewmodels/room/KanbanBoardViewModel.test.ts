@@ -15,6 +15,7 @@ import {
     Room,
     RelationType,
     RoomMemberEvent,
+    RoomStateEvent,
     ClientEvent,
     MatrixEventEvent,
     type MatrixClient,
@@ -670,6 +671,82 @@ describe("KanbanBoardViewModel", () => {
         );
         await vi.advanceTimersByTimeAsync(301);
         expect(client.fetchRelations).toHaveBeenCalled();
+    });
+
+    it("adds a reply's sender to its thread card without reloading, and reloads for a thread new to the board", async () => {
+        makeThread();
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        vi.useFakeTimers();
+        vi.mocked(client.fetchRelations).mockClear();
+        const reply = (id: string, threadId: string) =>
+            new MatrixEvent({
+                event_id: id,
+                room_id: room.roomId,
+                sender: "@dana:server",
+                type: "m.room.encrypted",
+                content: {
+                    "ciphertext": "reply",
+                    "m.relates_to": { rel_type: RelationType.Thread, event_id: threadId },
+                },
+            });
+        client.emit(ClientEvent.Event, reply("$reply", "$thread"));
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).not.toHaveBeenCalled();
+        expect(
+            vm
+                .getSnapshot()
+                .cards.find((card) => card.threadId === "$thread")
+                ?.participants?.map((person) => person.userId),
+        ).toEqual(["@dana:server"]);
+        client.emit(ClientEvent.Event, reply("$first", "$elsewhere"));
+        await vi.advanceTimersByTimeAsync(301);
+        expect(client.fetchRelations).toHaveBeenCalled();
+    });
+
+    it("does not reload again for the sync echo of its own card revision, whenever it arrives", async () => {
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        vi.useFakeTimers();
+        let echo!: IEvent;
+        vi.mocked(client.sendEvent).mockImplementationOnce(async (roomId, type, content) => {
+            echo = {
+                room_id: roomId,
+                event_id: "$echo",
+                sender: client.getSafeUserId(),
+                origin_server_ts: 2,
+                unsigned: {},
+                type: String(type),
+                content: typeof content === "object" ? content : {},
+            };
+            events.unshift(echo);
+            // Sync can deliver the echo before the send request resolves.
+            client.emit(ClientEvent.Event, new MatrixEvent(echo));
+            return { event_id: "$echo" };
+        });
+        await vm.move(vm.getSnapshot().cards[0], "doing");
+        expect(vm.getSnapshot().cards[0].column).toBe("doing");
+        vi.mocked(client.fetchRelations).mockClear();
+        // Or after the reload that already read it.
+        client.emit(ClientEvent.Event, new MatrixEvent(echo));
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).not.toHaveBeenCalled();
+    });
+
+    it("publishes a power-level change without reloading and ignores other rooms' state", async () => {
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().canAdd).toBe(true);
+        vi.useFakeTimers();
+        vi.mocked(client.fetchRelations).mockClear();
+        const state = (roomId: string, type: string) =>
+            new MatrixEvent({ room_id: roomId, type, state_key: "", content: { version: 1, event_id: "$other" } });
+        client.emit(RoomStateEvent.Events, state("!other:server", KANBAN_STATE_EVENT), room.currentState, null);
+        vi.mocked(room.currentState.maySendEvent).mockReturnValue(false);
+        client.emit(RoomStateEvent.Events, state(room.roomId, EventType.RoomPowerLevels), room.currentState, null);
+        expect(vm.getSnapshot().canAdd).toBe(false);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).not.toHaveBeenCalled();
     });
 
     it("exits the recap before navigating even when the source is the current room", async () => {

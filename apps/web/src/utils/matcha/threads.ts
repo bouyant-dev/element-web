@@ -206,13 +206,13 @@ export async function readThreadMetadata(client: MatrixClient, room: Room, root:
     );
 }
 
-/** Persist only the requested fields; Matrix transparently encrypts metadata in encrypted rooms. */
+/** Persist only the requested fields; Matrix transparently encrypts metadata in encrypted rooms. Returns the event ID. */
 export async function updateThreadMetadata(
     client: MatrixClient,
     room: Room,
     root: MatrixEvent,
     patch: ThreadMetadataPatch,
-): Promise<void> {
+): Promise<string> {
     if (!canManageThreads(client, room) || root.getRoomId() !== room.roomId || !root.getId())
         throw new Error("Cannot manage this thread");
     if (
@@ -221,12 +221,13 @@ export async function updateThreadMetadata(
         (patch.name === undefined && patch.archived === undefined)
     )
         throw new Error("Invalid thread metadata");
-    await client.sendEvent(room.roomId, THREAD_METADATA_EVENT, {
+    const { event_id: eventId } = await client.sendEvent(room.roomId, THREAD_METADATA_EVENT, {
         "version": 1,
         ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
         ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
         "m.relates_to": { rel_type: RelationType.Reference, event_id: root.getId() },
     });
+    return eventId;
 }
 
 /** Create a discoverable native thread without adding a duplicate visible starter message. */
