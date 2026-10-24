@@ -760,6 +760,8 @@ export class KanbanBoardViewModel
         )
             return false;
         this.snapshot.merge({ busy: true, error: undefined });
+        // A rename whose echo is ignored below still needs a reload if its card revision is never sent.
+        let unsavedPatch = false;
         try {
             const current = rootIdFromContent(await client.getStateEvent(room.roomId, KANBAN_STATE_EVENT, ""));
             if (current !== board.rootId) throw new Error("Board reference changed; refresh before saving");
@@ -770,7 +772,10 @@ export class KanbanBoardViewModel
                 );
                 if (duplicate) throw new Error("Thread already has a board card");
                 const root = await resolveThreadRoot(client, room, card.threadId);
-                if (threadPatch) this.ownEchoes.add(await updateThreadMetadata(client, room, root, threadPatch));
+                if (threadPatch) {
+                    this.ownEchoes.add(await updateThreadMetadata(client, room, root, threadPatch));
+                    unsavedPatch = true;
+                }
                 const metadata = await readThreadMetadata(client, room, root);
                 card = {
                     ...card,
@@ -801,6 +806,7 @@ export class KanbanBoardViewModel
             });
             // The reload below reads what we sent, so neither the echo nor a refresh it already queued is needed.
             this.ownEchoes.add(eventId);
+            unsavedPatch = false;
             clearTimeout(this.refreshTimer);
             if (!this.isDisposed) await this.reload();
             return true;
@@ -809,7 +815,10 @@ export class KanbanBoardViewModel
             if (!this.isDisposed) this.snapshot.merge({ error: _t("matcha_kanban|save_error") });
             return false;
         } finally {
-            if (!this.isDisposed) this.snapshot.merge({ busy: false });
+            if (!this.isDisposed) {
+                this.snapshot.merge({ busy: false });
+                if (unsavedPatch) this.scheduleReload();
+            }
         }
     };
 

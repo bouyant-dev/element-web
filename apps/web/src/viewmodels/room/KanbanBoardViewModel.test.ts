@@ -733,6 +733,25 @@ describe("KanbanBoardViewModel", () => {
         expect(client.fetchRelations).not.toHaveBeenCalled();
     });
 
+    it("still reloads for its own rename when the card revision after it fails", async () => {
+        makeThread();
+        events = [];
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        const send = vi.mocked(client.sendEvent).getMockImplementation()!;
+        vi.mocked(client.sendEvent).mockImplementation(async (...args: Parameters<typeof send>) => {
+            if (args[1] === KANBAN_CARD_EVENT) throw new Error("offline");
+            return send(...args);
+        });
+        vm.edit(vm.getSnapshot().cards[0]);
+        vm.setTitle("Renamed plan");
+        await vm.save();
+        expect(vm.getSnapshot().error).toBeDefined();
+        // The rename's echo is ignored as our own, so the board must not wait for it.
+        client.emit(ClientEvent.Event, new MatrixEvent(events[0]));
+        await vi.waitFor(() => expect(vm!.getSnapshot().cards[0].title).toBe("Renamed plan"));
+    });
+
     it("publishes a power-level change without reloading and ignores other rooms' state", async () => {
         vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
         await vm.reload();
