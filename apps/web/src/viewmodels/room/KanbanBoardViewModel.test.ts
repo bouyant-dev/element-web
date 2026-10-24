@@ -752,6 +752,30 @@ describe("KanbanBoardViewModel", () => {
         await vi.waitFor(() => expect(vm!.getSnapshot().cards[0].title).toBe("Renamed plan"));
     });
 
+    it("keeps a reply's sender that arrives while the board reloads", async () => {
+        makeThread();
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        const refresh = vm.reload();
+        client.emit(
+            ClientEvent.Event,
+            new MatrixEvent({
+                event_id: "$late",
+                room_id: room.roomId,
+                sender: "@erin:server",
+                type: "m.room.message",
+                content: { "body": "late", "m.relates_to": { rel_type: RelationType.Thread, event_id: "$thread" } },
+            }),
+        );
+        await refresh;
+        expect(
+            vm
+                .getSnapshot()
+                .cards.find((card) => card.threadId === "$thread")
+                ?.participants?.map((person) => person.userId),
+        ).toEqual(["@erin:server"]);
+    });
+
     it("publishes a power-level change without reloading and ignores other rooms' state", async () => {
         vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
         await vm.reload();
