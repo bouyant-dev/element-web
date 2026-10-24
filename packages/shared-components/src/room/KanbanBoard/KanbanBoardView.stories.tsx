@@ -7,7 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import React, { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 
 import { KanbanBoardView, type KanbanBoardSnapshot, type KanbanCard } from "./KanbanBoardView";
 import { useMockedViewModel } from "../../core/viewmodel";
@@ -18,6 +18,11 @@ const meta = {
     parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof KanbanBoardView>;
 export default meta;
+
+const people = [
+    { userId: "@bob:server", name: "Bob" },
+    { userId: "@carol:server", name: "Carol" },
+];
 
 const cards: KanbanCard[] = [
     {
@@ -31,6 +36,8 @@ const cards: KanbanCard[] = [
         column: "todo",
         archived: false,
         canEdit: true,
+        participants: [people[0]],
+        showToRoom: true,
     },
     {
         id: "two",
@@ -41,6 +48,8 @@ const cards: KanbanCard[] = [
         column: "todo",
         archived: false,
         canEdit: true,
+        participants: [people[1]],
+        showToRoom: false,
     },
     {
         id: "three",
@@ -51,6 +60,8 @@ const cards: KanbanCard[] = [
         column: "doing",
         archived: false,
         canEdit: true,
+        participants: people,
+        showToRoom: false,
     },
     {
         id: "four",
@@ -61,6 +72,8 @@ const cards: KanbanCard[] = [
         column: "doing",
         archived: false,
         canEdit: true,
+        participants: [people[0]],
+        showToRoom: true,
     },
     {
         id: "five",
@@ -86,6 +99,7 @@ const cards: KanbanCard[] = [
 
 const initial: KanbanBoardSnapshot = {
     cards,
+    people,
     universal: true,
     initialized: true,
     canCreateBoard: false,
@@ -105,7 +119,13 @@ const initial: KanbanBoardSnapshot = {
 
 function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> }): React.JSX.Element {
     const [state, setState] = useState({ ...initial, ...overrides });
-    const vm = useMockedViewModel(state, {
+    const filteredState = {
+        ...state,
+        cards: state.cards.filter(
+            (card) => !state.personFilter || card.participants?.some((person) => person.userId === state.personFilter),
+        ),
+    };
+    const vm = useMockedViewModel(filteredState, {
         reload: fn(async () => {}),
         loadMore: fn(async () => setState((value) => ({ ...value, hasMore: false }))),
         createBoard: fn(async () => setState((value) => ({ ...value, initialized: true, canAdd: true }))),
@@ -118,6 +138,7 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
                     title: card?.title ?? "",
                     description: card?.description ?? "",
                     threadId: card?.threadId,
+                    showToRoom: card ? (card.showToRoom ?? true) : false,
                 },
             })),
         ),
@@ -128,6 +149,9 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
             setState((value) => ({ ...value, editor: { ...value.editor!, threadId: threadId || undefined } })),
         openThread: fn(async () => {}),
         setDueAt: (dueAt: string) => setState((value) => ({ ...value, editor: { ...value.editor!, dueAt } })),
+        setShowToRoom: (showToRoom: boolean) =>
+            setState((value) => ({ ...value, editor: { ...value.editor!, showToRoom } })),
+        setPersonFilter: (personFilter: string) => setState((value) => ({ ...value, personFilter })),
         remind: fn(async () => {}),
         cancelEdit: () => setState((value) => ({ ...value, editor: undefined })),
         save: fn(async () =>
@@ -145,6 +169,7 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
                                         title: editor.title,
                                         description: editor.description,
                                         threadId: editor.threadId,
+                                        showToRoom: editor.showToRoom,
                                     }
                                   : item,
                           )
@@ -157,6 +182,7 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
                                   title: editor.title,
                                   description: editor.description,
                                   threadId: editor.threadId,
+                                  showToRoom: editor.showToRoom,
                                   column: "todo",
                                   archived: false,
                                   canEdit: true,
@@ -184,7 +210,19 @@ function BoardStory({ overrides }: { overrides?: Partial<KanbanBoardSnapshot> })
 }
 
 /** A working recap; changes stay in this local preview. */
-export const Recap: StoryObj = { render: () => <BoardStory /> };
+export const Recap: StoryObj = {
+    render: () => <BoardStory />,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        const filter = canvas.getByRole("combobox", { name: "Filter by person" });
+        await userEvent.selectOptions(filter, "@bob:server");
+        await expect(canvas.getByRole("article", { name: "Review the beta launch checklist" })).toBeVisible();
+        await expect(canvas.queryByRole("article", { name: "Make room for a calmer sidebar" })).not.toBeInTheDocument();
+        await expect(canvas.getByText("With Bob, Carol")).toBeVisible();
+        await userEvent.selectOptions(filter, "");
+        await expect(canvas.getByRole("article", { name: "Make room for a calmer sidebar" })).toBeVisible();
+    },
+};
 /** A room board with its add-card action. */
 export const RoomBoard: StoryObj = {
     render: () => <BoardStory overrides={{ universal: false, canAdd: true, canCreateBoard: true, hasMore: false }} />,
@@ -226,6 +264,16 @@ export const Editor: StoryObj = {
             }}
         />
     ),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement);
+        const visibility = canvas.getByRole("switch", { name: "Show to everyone in channel" });
+        await expect(visibility).not.toBeChecked();
+        await userEvent.click(visibility);
+        await expect(visibility).toBeChecked();
+        await userEvent.click(canvas.getByRole("button", { name: "Save card" }));
+        const card = canvas.getByRole("article", { name: "Review launch notes" });
+        await expect(within(card).getByText("Show to everyone in channel")).toBeVisible();
+    },
 };
 /** Loading does not claim the board is empty. */
 export const Loading: StoryObj = {

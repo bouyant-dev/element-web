@@ -10,6 +10,8 @@ Please see LICENSE in the repository root for full details.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     MatrixEvent,
+    EventType,
+    User,
     Room,
     RelationType,
     RoomMemberEvent,
@@ -51,7 +53,7 @@ describe("KanbanBoardViewModel", () => {
         roomId = "!room:server",
     ): IEvent => ({
         event_id: "$" + id + title,
-        sender: "@user:server",
+        sender: client.getSafeUserId(),
         origin_server_ts: 1,
         unsigned: {},
         room_id: roomId,
@@ -138,7 +140,7 @@ describe("KanbanBoardViewModel", () => {
             events.unshift({
                 room_id: roomId,
                 event_id: "$new",
-                sender: "@user:server",
+                sender: client.getSafeUserId(),
                 origin_server_ts: 2,
                 unsigned: {},
                 type: String(type),
@@ -233,7 +235,7 @@ describe("KanbanBoardViewModel", () => {
         events = [
             {
                 event_id: "$encrypted",
-                sender: "@user:server",
+                sender: client.getSafeUserId(),
                 origin_server_ts: 3,
                 unsigned: {},
                 room_id: room.roomId,
@@ -296,6 +298,230 @@ describe("KanbanBoardViewModel", () => {
         const dispatch = vi.spyOn(dispatcher, "dispatch");
         vm.openRoom(left.roomId);
         expect(dispatch).not.toHaveBeenCalled();
+    });
+
+    it("persists opt-in channel visibility across edits, moves and archive changes", async () => {
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards[0].showToRoom).toBe(true);
+        vm.edit();
+        expect(vm.getSnapshot().editor?.showToRoom).toBe(false);
+        vm.setTitle("Team task");
+        vm.setShowToRoom(true);
+        await vm.save();
+        let card = vm.getSnapshot().cards.find((item) => item.title === "Team task")!;
+        expect(card.showToRoom).toBe(true);
+        vm.edit(card);
+        vm.setShowToRoom(false);
+        await vm.save();
+        card = vm.getSnapshot().cards.find((item) => item.id === card.id)!;
+        expect(card.showToRoom).toBe(false);
+        await vm.move(card, "doing");
+        await vm.archive(card, false);
+        expect(client.sendEvent).toHaveBeenLastCalledWith(
+            room.roomId,
+            KANBAN_CARD_EVENT,
+            expect.objectContaining({ show_to_room: false, column: "doing" }),
+        );
+    });
+
+    it("shows channel-shared B+C cards in the room but excludes them from my recap", async () => {
+        const root = makeThread();
+        root.event.sender = "@bob:server";
+        events = [revision("one", "Release planning", { thread_id: "$thread", show_to_room: true })];
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toHaveLength(1);
+        vm.dispose();
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toEqual([]);
+        expect(vm.getSnapshot().people).toEqual([]);
+        vm.dispose();
+        events[0].content!.show_to_room = false;
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toEqual([]);
+    });
+
+    it("includes a thread I replied to and filters by its participants, never other room members", async () => {
+        const root = makeThread();
+        root.event.sender = "@bob:server";
+        Object.assign(room.getThread("$thread")!, { hasCurrentUserParticipated: true });
+        const own = makeThread(room, "$own");
+        own.getContent().body = "Solo task";
+        events = [];
+        const bob = new User("@bob:server");
+        bob.displayName = "Bob";
+        vi.mocked(client.getUser).mockImplementation((id) => (id === bob.userId ? bob : null));
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toHaveLength(2);
+        expect(vm.getSnapshot().people).toEqual([{ userId: bob.userId, name: "Bob" }]);
+        vm.setPersonFilter(bob.userId);
+        expect(vm.getSnapshot().cards.map((card) => card.threadId)).toEqual(["$thread"]);
+        expect(vm.getSnapshot().cards[0].participants).toEqual([{ userId: bob.userId, name: "Bob" }]);
+        vm.setPersonFilter("");
+        expect(vm.getSnapshot().cards).toHaveLength(2);
+    });
+
+    it("recognizes my participation from the server summary and loads older people without losing them on refresh", async () => {
+        const root = makeThread();
+        root.event.sender = "@bob:server";
+        root.getUnsigned()["m.relations"] = { [RelationType.Thread]: { current_user_participated: true } };
+        events = [];
+        vi.mocked(client.fetchRelations).mockImplementation(async (_room, _root, relation, _type, options) => {
+            if (relation !== RelationType.Thread) return { chunk: [] };
+            return options?.from
+                ? {
+                      chunk: [
+                          {
+                              event_id: "$oldreply",
+                              origin_server_ts: 1,
+                              unsigned: {},
+                              room_id: room.roomId,
+                              sender: "@charlie:server",
+                              type: EventType.RoomMessage,
+                              content: {
+                                  "body": "Older reply",
+                                  "m.relates_to": { rel_type: RelationType.Thread, event_id: "$thread" },
+                              },
+                          },
+                      ],
+                  }
+                : { chunk: [], next_batch: "older-people" };
+        });
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot()).toMatchObject({ hasMore: true, cards: [{ threadId: "$thread" }] });
+        await vm.loadMore();
+        expect(vm.getSnapshot().hasMore).toBe(false);
+        expect(vm.getSnapshot().people?.map((person) => person.userId)).toContain("@charlie:server");
+        await vm.reload();
+        vm.setPersonFilter("@charlie:server");
+        expect(vm.getSnapshot().cards).toHaveLength(1);
+    });
+
+    it("keeps older participant pagination progress through refreshes and reports stalled pages", async () => {
+        makeThread();
+        events = [];
+        let stalled = false;
+        vi.mocked(client.fetchRelations).mockImplementation(async (_room, _root, relation, _type, options) => {
+            if (relation !== RelationType.Thread) return { chunk: [] };
+            if (!options?.from) return { chunk: [], next_batch: "second" };
+            if (options.from === "second") return { chunk: [], next_batch: "third" };
+            return { chunk: [], ...(stalled ? { next_batch: "third" } : {}) };
+        });
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        await vm.loadMore();
+        await vm.reload();
+        stalled = true;
+        await vm.loadMore();
+        expect(client.fetchRelations).toHaveBeenCalledWith(
+            room.roomId,
+            "$thread",
+            RelationType.Thread,
+            null,
+            expect.objectContaining({ from: "third" }),
+        );
+        expect(vm.getSnapshot()).toMatchObject({ hasMore: true, error: expect.any(String) });
+        stalled = false;
+        await vm.loadMore();
+        expect(vm.getSnapshot()).toMatchObject({ hasMore: false, error: undefined });
+        await vm.reload();
+        expect(vm.getSnapshot().hasMore).toBe(false);
+    });
+
+    it("accepts encrypted replies but ignores foreign, redacted and non-thread events for participation", async () => {
+        const root = makeThread();
+        root.event.sender = "@bob:server";
+        events = [];
+        const reply = (id: string, sender: string, relation = RelationType.Thread): IEvent => ({
+            event_id: id,
+            origin_server_ts: 1,
+            unsigned: {},
+            room_id: room.roomId,
+            sender,
+            type: EventType.RoomMessage,
+            content: { "body": "Reply", "m.relates_to": { rel_type: relation, event_id: "$thread" } },
+        });
+        vi.mocked(client.fetchRelations).mockImplementation(async (_room, _root, relation) => ({
+            chunk:
+                relation === RelationType.Thread
+                    ? [
+                          { ...reply("$encrypted", client.getSafeUserId()), type: EventType.RoomMessageEncrypted },
+                          { ...reply("$foreign", "@foreign:server"), room_id: "!elsewhere:server" },
+                          reply("$reaction", "@reactor:server", RelationType.Annotation),
+                          {
+                              ...reply("$redacted", "@redacted:server"),
+                              unsigned: { redacted_because: reply("$redaction", "@bob:server") },
+                          },
+                      ]
+                    : [],
+        }));
+        vi.mocked(client.decryptEventIfNeeded).mockImplementation(async (event) => {
+            if (event.getId() === "$encrypted") {
+                vi.spyOn(event, "getType").mockReturnValue(EventType.RoomMessage);
+                vi.spyOn(event, "getContent").mockReturnValue(reply("$clear", client.getSafeUserId()).content!);
+                vi.spyOn(event, "getRelation").mockReturnValue({ rel_type: RelationType.Thread, event_id: "$thread" });
+            }
+        });
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toHaveLength(1);
+        expect(vm.getSnapshot().people?.map((person) => person.userId)).toEqual(["@bob:server"]);
+    });
+
+    it("includes DM cards before I reply and updates when direct-message account data changes", async () => {
+        const root = makeThread();
+        root.event.sender = "@bob:server";
+        events = [revision("one", "Release planning", { thread_id: "$thread", show_to_room: false })];
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toEqual([]);
+        const direct = new MatrixEvent({ type: EventType.Direct, content: { "@bob:server": [room.roomId] } });
+        vi.mocked(client.getAccountData).mockReturnValue(direct);
+        client.emit(ClientEvent.AccountData, direct);
+        expect(vm.getSnapshot().cards).toHaveLength(1);
+        expect(vm.getSnapshot().people?.map((person) => person.userId)).toEqual(["@bob:server"]);
+        vi.mocked(client.getAccountData).mockReturnValue(undefined);
+        vm.setPersonFilter("@bob:server");
+        client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EventType.Direct, content: {} }));
+        expect(vm.getSnapshot().cards).toEqual([]);
+        expect(vm.getSnapshot().personFilter).toBe("");
+    });
+
+    it("lists every mapped group-DM counterpart without treating channel members as participants", async () => {
+        events = [revision("one", "Group DM task", { show_to_room: false })];
+        events[0].sender = "@bob:server";
+        vi.mocked(client.getAccountData).mockReturnValue(
+            new MatrixEvent({
+                type: EventType.Direct,
+                content: {
+                    "@bob:server": [room.roomId],
+                    "@charlie:server": [room.roomId],
+                    "@elsewhere:server": ["!other:server"],
+                },
+            }),
+        );
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards).toHaveLength(1);
+        expect(vm.getSnapshot().people?.map((person) => person.userId)).toEqual(["@bob:server", "@charlie:server"]);
+    });
+
+    it("keeps a visibility draft after a failed save and rejects malformed visibility fields", async () => {
+        events = [revision("bad", "Invalid", { show_to_room: "true" }), revision("one", "Valid")];
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().cards.map((card) => card.title)).toEqual(["Valid"]);
+        vm.edit(vm.getSnapshot().cards[0]);
+        vm.setShowToRoom(false);
+        vi.mocked(client.sendEvent).mockRejectedValue(new Error("offline"));
+        await vm.save();
+        expect(vm.getSnapshot().editor?.showToRoom).toBe(false);
+        expect(vm.getSnapshot().cards[0].showToRoom).toBe(true);
     });
 
     it("checks permission again before writes and retains drafts after failures", async () => {
@@ -505,8 +731,12 @@ describe("KanbanBoardViewModel", () => {
     it("projects every loaded thread four at a time", async () => {
         const threads = Array.from({ length: 9 }, (_, index) => makeThread(room, "$thread" + index));
         const pending: ((value: { chunk: IEvent[] }) => void)[] = [];
-        vi.mocked(client.fetchRelations).mockImplementation((_room, root) =>
-            root === "$board" ? Promise.resolve({ chunk: events }) : new Promise((resolve) => pending.push(resolve)),
+        vi.mocked(client.fetchRelations).mockImplementation((_room, root, relation) =>
+            root === "$board"
+                ? Promise.resolve({ chunk: events })
+                : relation === RelationType.Thread
+                  ? Promise.resolve({ chunk: [] })
+                  : new Promise((resolve) => pending.push(resolve)),
         );
         vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
         await vi.waitFor(() => expect(pending).toHaveLength(4));

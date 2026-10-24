@@ -22,6 +22,8 @@ class TestViewModel extends MockViewModel<KanbanBoardSnapshot> {
     public setDescription = vi.fn();
     public setThread = vi.fn();
     public setDueAt = vi.fn();
+    public setShowToRoom = vi.fn();
+    public setPersonFilter = vi.fn();
     public remind = vi.fn().mockResolvedValue(undefined);
     public openThread = vi.fn();
     public cancelEdit = vi.fn();
@@ -77,9 +79,40 @@ describe("KanbanBoardView", () => {
         render(<KanbanBoardView vm={vm} />);
         await userEvent.click(screen.getByRole("button", { name: "Open Project" }));
         expect(vm.openRoom).toHaveBeenCalledWith("!room:server");
-        expect(screen.getByText(/Older cards may be missing/)).toBeInTheDocument();
+        expect(screen.getByText("More cards or people may be available in older history.")).toBeInTheDocument();
         await userEvent.click(screen.getByRole("button", { name: "Load older cards" }));
         expect(vm.loadMore).toHaveBeenCalled();
+    });
+
+    it("filters the recap by a named collaborator and shows who each card is with", async () => {
+        const people = [{ userId: "@bob:server", name: "Bob" }];
+        const vm = new TestViewModel({
+            ...snapshot,
+            universal: true,
+            people,
+            personFilter: "@bob:server",
+            cards: [
+                { ...snapshot.cards[0], participants: people, showToRoom: false },
+                { ...snapshot.cards[0], id: "two", title: "Personal follow-up", participants: [], showToRoom: true },
+            ],
+        });
+        render(<KanbanBoardView vm={vm} />);
+        const filter = screen.getByRole("combobox", { name: "Filter by person" });
+        expect(filter).toHaveValue("@bob:server");
+        expect(screen.getByText("With Bob")).toBeVisible();
+        expect(screen.getByText("Just you")).toBeVisible();
+        expect(
+            within(screen.getByRole("article", { name: "Ship release" })).queryByText("Show to everyone in channel"),
+        ).not.toBeInTheDocument();
+        expect(
+            within(screen.getByRole("article", { name: "Personal follow-up" })).getByText(
+                "Show to everyone in channel",
+            ),
+        ).toBeVisible();
+        await userEvent.selectOptions(filter, "");
+        expect(vm.setPersonFilter).toHaveBeenCalledWith("");
+        await userEvent.selectOptions(filter, "@bob:server");
+        expect(vm.setPersonFilter).toHaveBeenCalledWith("@bob:server");
     });
 
     it("offers restore in the archive view and hides controls for read-only cards", async () => {
@@ -112,11 +145,36 @@ describe("KanbanBoardView", () => {
         render(<KanbanBoardView vm={vm} />);
         expect(screen.getByLabelText("Card title")).toHaveAttribute("maxlength", "100");
         expect(screen.getByLabelText("Description (optional)")).toHaveAttribute("maxlength", "4000");
+        const visibility = screen.getByRole("switch", { name: "Show to everyone in channel" });
+        expect(visibility).not.toBeChecked();
+        expect(visibility).toHaveAccessibleDescription(
+            "Controls visibility on this board. Channel members can still read the linked conversation.",
+        );
+        await userEvent.click(visibility);
+        expect(vm.setShowToRoom).toHaveBeenCalledWith(true);
         expect(screen.getByRole("alert").textContent).toContain("Save failed");
         await userEvent.click(screen.getByRole("button", { name: "Retry" }));
         expect(vm.reload).toHaveBeenCalled();
         await userEvent.click(screen.getByRole("button", { name: "Save card" }));
         expect(vm.save).toHaveBeenCalled();
+    });
+
+    it("preserves shared legacy cards in the editor and disables the visibility toggle while busy", async () => {
+        const editor = { id: "one", roomId: "!room:server", title: "Title", description: "" };
+        const vm = new TestViewModel({ ...snapshot, editor });
+        const { rerender } = render(<KanbanBoardView vm={vm} />);
+        const visibility = screen.getByRole("switch", { name: "Show to everyone in channel" });
+        expect(visibility).toBeChecked();
+        await userEvent.click(visibility);
+        expect(vm.setShowToRoom).toHaveBeenCalledWith(false);
+        rerender(
+            <KanbanBoardView
+                vm={new TestViewModel({ ...snapshot, editor: { ...editor, showToRoom: false }, busy: true })}
+            />,
+        );
+        expect(visibility).not.toBeChecked();
+        expect(visibility).toBeDisabled();
+        expect(screen.queryByRole("combobox", { name: "Filter by person" })).not.toBeInTheDocument();
     });
 
     it("edits deadlines without unlinking the one-to-one thread and opens its conversation", async () => {

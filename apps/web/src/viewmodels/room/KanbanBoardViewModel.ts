@@ -23,6 +23,7 @@ import {
     RoomMemberEvent,
     type MatrixClient,
     type MatrixEvent,
+    type IThreadBundledRelationship,
     type RoomMember,
     type Room,
 } from "matrix-js-sdk/src/matrix";
@@ -48,6 +49,7 @@ import {
 } from "../../utils/matcha/threads";
 import { scheduleRoomReminder } from "../../utils/matcha/reminders";
 import { decryptMatrixEventWithRetry } from "../../utils/matcha/encryption";
+import { filterValidMDirect } from "../../utils/dm/filterValidMDirect";
 
 /** Room state contains only this board's root event identifier, never card content. */
 export const KANBAN_STATE_EVENT = "com.matchahoneylatte.kanban";
@@ -61,6 +63,8 @@ interface BoardData {
     cards: Map<string, KanbanCard>;
     projected: Map<string, KanbanCard>;
     threads: Map<string, ThreadMetadata>;
+    participants: Map<string, Set<string>>;
+    participantPages: Map<string, string | undefined>;
     next?: string;
     unreadable: boolean;
 }
@@ -111,7 +115,8 @@ function cardFromEvent(event: MatrixEvent, room: Room, rootId: string): KanbanCa
         typeof content.description !== "string" ||
         content.description.length > 4000 ||
         !["todo", "doing", "done"].includes(content.column) ||
-        typeof content.archived !== "boolean"
+        typeof content.archived !== "boolean" ||
+        (content.show_to_room !== undefined && typeof content.show_to_room !== "boolean")
     )
         return;
     return {
@@ -123,6 +128,7 @@ function cardFromEvent(event: MatrixEvent, room: Room, rootId: string): KanbanCa
         column: content.column,
         archived: content.archived,
         canEdit: false,
+        showToRoom: content.show_to_room ?? true,
         dueAt: validTimestamp(content.due_at) ? content.due_at : undefined,
         reminderRequested:
             content.reminder_requested &&
@@ -167,6 +173,8 @@ export class KanbanBoardViewModel
             threads: [],
             threadsLoading: false,
             canRemind: !!props.reminderBot,
+            people: [],
+            personFilter: "",
         });
         this.initialThreadId = props.initialThreadId;
         this.disposables.trackListener(props.client, ClientEvent.Event, (event) => this.onEvent(event as MatrixEvent));
@@ -179,6 +187,10 @@ export class KanbanBoardViewModel
         this.disposables.trackListener(props.client, RoomMemberEvent.Membership, (event, member) =>
             this.onMembership(event as MatrixEvent, member as RoomMember),
         );
+        this.disposables.trackListener(props.client, ClientEvent.AccountData, (event) => {
+            if ((event as MatrixEvent).getType() === EventType.Direct) this.publish();
+        });
+        this.disposables.trackListener(props.client, RoomMemberEvent.Name, () => this.publish());
         this.disposables.track(() => clearTimeout(this.refreshTimer));
         void this.reload();
     }
@@ -203,18 +215,55 @@ export class KanbanBoardViewModel
         if (this.isDisposed) return;
         const rooms = this.joinedRooms();
         const room = this.props.room;
+        const me = this.props.client.getSafeUserId();
+        const direct = Object.entries(
+            filterValidMDirect(this.props.client.getAccountData(EventType.Direct)?.getContent() ?? {}).filteredContent,
+        );
         const active = rooms.flatMap((source) => {
             const board = this.boards.get(source.roomId);
-            return board
-                ? [...board.projected.values()].map((card) => ({
-                      ...card,
-                      roomName: source.name,
-                      canEdit: this.canWrite(source),
-                  }))
-                : [];
+            if (!board) return [];
+            const dmPartners = direct.filter(([, ids]) => ids.includes(source.roomId)).map(([userId]) => userId);
+            const inviter = source.getDMInviter();
+            if (!dmPartners.length && inviter) dmPartners.push(inviter);
+            return [...board.projected.values()].flatMap((card) => {
+                const participantIds = new Set(board.participants.get(card.threadId ?? card.id));
+                if (dmPartners.length) {
+                    participantIds.add(me);
+                    for (const partner of dmPartners)
+                        participantIds.add(partner === me ? (source.guessDMUserId() ?? me) : partner);
+                }
+                const involvesMe = participantIds.has(me);
+                if (!involvesMe && (!room || !card.showToRoom)) return [];
+                return [
+                    {
+                        ...card,
+                        roomName: source.name,
+                        canEdit: this.canWrite(source),
+                        participants: [...participantIds]
+                            .filter((id) => id !== me)
+                            .map((userId) => ({
+                                userId,
+                                name:
+                                    source.getMember(userId)?.name ??
+                                    this.props.client.getUser(userId)?.displayName ??
+                                    userId,
+                            })),
+                    },
+                ];
+            });
         });
+        const people = [
+            ...new Map(active.flatMap((card) => card.participants).map((person) => [person.userId, person])).values(),
+        ].sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId));
+        const selectedPerson = this.getSnapshot().personFilter;
+        const personFilter = people.some((person) => person.userId === selectedPerson) ? selectedPerson : "";
         this.snapshot.merge({
-            cards: active,
+            cards:
+                room || !personFilter
+                    ? active
+                    : active.filter((card) => card.participants.some((person) => person.userId === personFilter)),
+            people,
+            personFilter,
             initialized: room ? rooms.includes(room) && this.boards.has(room.roomId) : this.boards.size > 0,
             canCreateBoard:
                 !!room &&
@@ -231,6 +280,7 @@ export class KanbanBoardViewModel
                 (source) =>
                     this.boards.has(source.roomId) &&
                     (!!this.boards.get(source.roomId)?.next ||
+                        [...(this.boards.get(source.roomId)?.participantPages.values() ?? [])].some(Boolean) ||
                         !!source.threadsTimelineSets[0]?.getLiveTimeline().getPaginationToken(EventTimeline.BACKWARDS)),
             ),
             unreadable: rooms.some((source) => !!this.boards.get(source.roomId)?.unreadable),
@@ -326,12 +376,53 @@ export class KanbanBoardViewModel
                 }
                 const card = cardFromEvent(event, room, board.rootId);
                 // Backward pagination is newest first: retain the first revision, regardless of sender clock.
-                if (card && !board.cards.has(card.id)) board.cards.set(card.id, card);
+                if (card) {
+                    if (!board.cards.has(card.id)) board.cards.set(card.id, card);
+                    // Legacy standalone cards have no thread; their revision authors are their participants.
+                    if (!card.threadId && event.getSender()) {
+                        const authors = board.participants.get(card.id) ?? new Set<string>();
+                        authors.add(event.getSender()!);
+                        board.participants.set(card.id, authors);
+                    }
+                }
             }
             board.next = result.next_batch && result.next_batch !== from ? result.next_batch : undefined;
         } finally {
             this.readingHistory--;
         }
+    };
+
+    private loadParticipants = async (room: Room, board: BoardData, threadId: string, from?: string): Promise<void> => {
+        const result = await this.props.client.fetchRelations(room.roomId, threadId, RelationType.Thread, null, {
+            dir: Direction.Backward,
+            limit: 100,
+            from,
+        });
+        if (this.isDisposed || room.getMyMembership() !== "join") return;
+        const participants = board.participants.get(threadId) ?? new Set<string>();
+        for (const raw of result.chunk) {
+            if (raw.room_id && raw.room_id !== room.roomId) continue;
+            const wire = { ...raw, room_id: room.roomId };
+            const event = await decryptMatrixEventWithRetry(
+                this.props.client,
+                this.props.client.getEventMapper()(wire),
+                wire,
+            );
+            if (event.isDecryptionFailure()) board.unreadable = true;
+            const relation = event.getRelation();
+            if (
+                !event.isRedacted() &&
+                event.getSender() &&
+                relation?.rel_type === RelationType.Thread &&
+                relation.event_id === threadId
+            )
+                participants.add(event.getSender()!);
+        }
+        board.participants.set(threadId, participants);
+        if (result.next_batch && result.next_batch === from) throw new Error("Thread participant pagination stalled");
+        // A live refresh must not move the user's older-history cursor back to the first page.
+        if (from || !board.participantPages.has(threadId) || !result.next_batch)
+            board.participantPages.set(threadId, result.next_batch);
     };
 
     private projectThreads = async (room: Room, board: BoardData, fetch = true): Promise<boolean> => {
@@ -363,6 +454,35 @@ export class KanbanBoardViewModel
                     threadIds.slice(offset, offset + 4).map(async (id) => {
                         const root = await resolveThreadRoot(client, room, id);
                         const metadata = await readThreadMetadata(client, room, root);
+                        const thread = room.getThread(id);
+                        const needsParticipants = fetch || !board.participantPages.has(id);
+                        const participants = board.participants.get(id) ?? new Set<string>();
+                        if (root.getSender()) participants.add(root.getSender()!);
+                        if (
+                            thread?.hasCurrentUserParticipated ||
+                            root.getServerAggregatedRelation<IThreadBundledRelationship>(RelationType.Thread)
+                                ?.current_user_participated
+                        )
+                            participants.add(client.getSafeUserId());
+                        for (const reply of thread?.events ?? []) {
+                            const relation = reply.getRelation();
+                            if (
+                                !reply.isRedacted() &&
+                                reply.getSender() &&
+                                relation?.rel_type === RelationType.Thread &&
+                                relation.event_id === id
+                            )
+                                participants.add(reply.getSender()!);
+                        }
+                        board.participants.set(id, participants);
+                        if (needsParticipants) {
+                            try {
+                                await this.loadParticipants(room, board, id);
+                            } catch (error) {
+                                logger.warn("Unable to load board participants", error);
+                                failed = true;
+                            }
+                        }
                         board.threads.set(id, metadata);
                         const revisions = grouped.get(id) ?? [];
                         const existing = revisions[0];
@@ -377,6 +497,7 @@ export class KanbanBoardViewModel
                                 ? metadata.archived
                                 : (existing?.archived ?? metadata.archived),
                             canEdit: this.canWrite(room),
+                            showToRoom: existing?.showToRoom ?? true,
                             threadId: id,
                             dueAt: existing?.dueAt,
                             reminderRequested: existing?.reminderRequested,
@@ -415,11 +536,18 @@ export class KanbanBoardViewModel
                     rootIdFromContent(room.currentState.getStateEvents(KANBAN_STATE_EVENT, "")?.getContent() ?? {}) ??
                     (room === this.props.room ? this.createdRootId : undefined);
                 if (!rootId) continue;
+                const previousBoard = this.boards.get(room.roomId);
                 const board: BoardData = {
                     rootId,
                     cards: new Map(),
                     projected: new Map(),
                     threads: new Map(),
+                    participants:
+                        previousBoard?.rootId === rootId
+                            ? new Map([...previousBoard.participants].map(([id, users]) => [id, new Set(users)]))
+                            : new Map(),
+                    participantPages:
+                        previousBoard?.rootId === rootId ? new Map(previousBoard.participantPages) : new Map(),
                     unreadable: false,
                 };
                 boards.set(room.roomId, board);
@@ -460,6 +588,11 @@ export class KanbanBoardViewModel
                 const board = this.boards.get(room.roomId);
                 if (!board) continue;
                 if (board.next) await this.loadPage(room, board, board.next);
+                for (const [threadId, from] of board.participantPages) {
+                    if (!from) continue;
+                    await this.loadParticipants(room, board, threadId, from);
+                    if (this.isDisposed || generation !== this.generation) return;
+                }
                 const timeline = room.threadsTimelineSets[0]?.getLiveTimeline();
                 if (timeline?.getPaginationToken(EventTimeline.BACKWARDS))
                     await this.props.client.paginateEventTimeline(timeline, { backwards: true, limit: 30 });
@@ -517,6 +650,7 @@ export class KanbanBoardViewModel
                 description: card?.description ?? "",
                 threadId: card?.threadId ?? this.initialThreadId,
                 dueAt: card?.dueAt ? localDateTime(card.dueAt) : "",
+                showToRoom: card ? (card.showToRoom ?? true) : false,
             },
             threads: [...board.threads].map(([id, metadata]) => ({ id, title: metadata.name })),
             threadsLoading: false,
@@ -544,6 +678,14 @@ export class KanbanBoardViewModel
     };
     public setDueAt = (dueAt: string): void => {
         if (this.getSnapshot().editor) this.snapshot.merge({ editor: { ...this.getSnapshot().editor!, dueAt } });
+    };
+    public setShowToRoom = (showToRoom: boolean): void => {
+        const editor = this.getSnapshot().editor;
+        if (editor) this.snapshot.merge({ editor: { ...editor, showToRoom } });
+    };
+    public setPersonFilter = (personFilter: string): void => {
+        this.snapshot.merge({ personFilter });
+        this.publish();
     };
     public cancelEdit = (): void => {
         this.snapshot.merge({ editor: undefined, threadsLoading: false, threads: [], threadError: undefined });
@@ -592,6 +734,7 @@ export class KanbanBoardViewModel
                 "description": card.description,
                 "column": card.column,
                 "archived": card.archived,
+                "show_to_room": card.showToRoom ?? true,
                 ...(card.threadId ? { thread_id: card.threadId } : {}),
                 ...(card.dueAt !== undefined ? { due_at: card.dueAt } : {}),
                 ...(card.reminderRequested
@@ -678,6 +821,7 @@ export class KanbanBoardViewModel
                 threadId: editor.threadId,
                 dueAt,
                 reminderRequested: previous?.reminderRequested,
+                showToRoom: editor.showToRoom ?? false,
             },
             previous?.threadId && previous.title !== editor.title.trim() ? { name: editor.title.trim() } : undefined,
         );

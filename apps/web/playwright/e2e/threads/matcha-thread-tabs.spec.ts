@@ -8,6 +8,7 @@ Please see LICENSE in the repository root for full details.
 import { test, expect } from "../../element-web-test";
 import type { Page, TestInfo } from "@playwright/test";
 import type { EventType } from "matrix-js-sdk/src/matrix";
+import { Bot } from "../../pages/bot";
 
 async function dismissPreviewPrompts(page: Page): Promise<void> {
     for (const name of ["Later", "Dismiss"]) {
@@ -222,6 +223,141 @@ test.describe("Matcha room thread tabs", () => {
         );
         await expect(page.getByRole("article", { name: "Ship beta navigation" })).toHaveCount(0);
     });
+    test("shares cards with the channel and filters All boards by my thread participants and DMs", async ({
+        page,
+        app,
+        bot,
+        homeserver,
+    }, testInfo) => {
+        test.setTimeout(120_000);
+        const charlie = new Bot(page, homeserver, { displayName: "Charlie" });
+        await charlie.prepareClient();
+        const roomId = await app.client.createRoom({
+            name: "Team planning",
+            invite: [bot.credentials!.userId, charlie.credentials!.userId],
+        });
+        await bot.joinRoom(roomId);
+        await charlie.joinRoom(roomId);
+        const dmId = await app.client.createRoom({ is_direct: true, invite: [bot.credentials!.userId] });
+        await bot.joinRoom(dmId);
+        await app.client.setAccountData("m.direct" as EventType.Direct, { [bot.credentials!.userId]: [dmId] });
+        const initializeBoard = async (id: string): Promise<string> => {
+            const root = await app.client.sendEvent(id, null, "com.matchahoneylatte.kanban.board", { version: 1 });
+            await app.client.evaluate(
+                (client, args) =>
+                    client.sendStateEvent(
+                        args.roomId,
+                        "com.matchahoneylatte.kanban",
+                        { version: 1, event_id: args.rootId },
+                        "",
+                    ),
+                { roomId: id, rootId: root.event_id },
+            );
+            return root.event_id;
+        };
+        const boardId = await initializeBoard(roomId);
+        const dmBoardId = await initializeBoard(dmId);
+        const bobThread = await bot.sendMessage(roomId, "Alice and Bob");
+        await app.client.sendMessage(roomId, "I will work on this with Bob", bobThread.event_id);
+        const charlieThread = await charlie.sendMessage(roomId, "Alice and Charlie");
+        await app.client.sendMessage(roomId, "I will work on this with Charlie", charlieThread.event_id);
+        const unrelated = await bot.sendMessage(roomId, "Bob and Charlie");
+        await charlie.sendMessage(roomId, "We will handle this", unrelated.event_id);
+        const hidden = await bot.sendMessage(roomId, "Quiet Bob and Charlie");
+        await charlie.sendMessage(roomId, "We will handle this too", hidden.event_id);
+        for (const [id, title, threadId, showToRoom] of [
+            ["bob", "Alice and Bob", bobThread.event_id, false],
+            ["charlie", "Alice and Charlie", charlieThread.event_id, false],
+            ["unrelated", "Bob and Charlie", unrelated.event_id, true],
+            ["hidden", "Quiet Bob and Charlie", hidden.event_id, false],
+        ] as const) {
+            await bot.sendEvent(roomId, null, "com.matchahoneylatte.kanban.card", {
+                "version": 1,
+                "card_id": id,
+                title,
+                "description": "",
+                "column": "todo",
+                "archived": false,
+                "thread_id": threadId,
+                "show_to_room": showToRoom,
+                "m.relates_to": { rel_type: "m.reference", event_id: boardId },
+            });
+        }
+        await bot.sendEvent(dmId, null, "com.matchahoneylatte.kanban.card", {
+            "version": 1,
+            "card_id": "dm",
+            "title": "Bob DM follow-up",
+            "description": "",
+            "column": "todo",
+            "archived": false,
+            "show_to_room": false,
+            "m.relates_to": { rel_type: "m.reference", event_id: dmBoardId },
+        });
+
+        const openBoard = async (): Promise<void> => {
+            await page.goto("/#/room/" + roomId);
+            await page
+                .getByRole("navigation", { name: "Room conversations" })
+                .getByRole("button", { name: "Board", exact: true })
+                .click();
+        };
+        await openBoard();
+        await expect(page.getByRole("article", { name: "Alice and Bob", exact: true })).toBeVisible();
+        await expect(page.getByRole("article", { name: "Bob and Charlie", exact: true })).toBeVisible();
+        await expect(page.getByRole("article", { name: "Quiet Bob and Charlie", exact: true })).toHaveCount(0);
+        await page.getByRole("button", { name: "Add card", exact: true }).click();
+        await page.getByRole("textbox", { name: "Card title", exact: true }).fill("My channel update");
+        const visibility = page.getByLabel("Show to everyone in channel", { exact: true });
+        await expect(visibility).not.toBeChecked();
+        await visibility.check();
+        await page.getByRole("button", { name: "Save card", exact: true }).click();
+        const ownCard = page.getByRole("article", { name: "My channel update", exact: true });
+        await expect(ownCard).toBeVisible();
+        await page.reload();
+        await openBoard();
+        await ownCard.getByRole("button", { name: "Actions for My channel update", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Edit card", exact: true }).click();
+        await expect(visibility).toBeChecked();
+        await visibility.uncheck();
+        await page.getByRole("button", { name: "Save card", exact: true }).click();
+        await expect(visibility).toHaveCount(0);
+        await expect(ownCard).toBeVisible();
+        await page.reload();
+        await openBoard();
+        await ownCard.getByRole("button", { name: "Actions for My channel update", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Edit card", exact: true }).click();
+        await expect(visibility).not.toBeChecked();
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
+        await page.getByRole("tree", { name: "Spaces" }).getByRole("button", { name: "Personal", exact: true }).click();
+        await expect(page).toHaveURL((url) => url.hash === "#/personal");
+        const bobCard = page.getByRole("article", { name: "Alice and Bob", exact: true });
+        const charlieCard = page.getByRole("article", { name: "Alice and Charlie", exact: true });
+        const dmCard = page.getByRole("article", { name: "Bob DM follow-up", exact: true });
+        await expect(bobCard).toContainText("With Bob");
+        await expect(charlieCard).toContainText("With Charlie");
+        await expect(dmCard).toContainText("With Bob");
+        await expect(ownCard).toBeVisible();
+        await expect(page.getByRole("article", { name: "Bob and Charlie", exact: true })).toHaveCount(0);
+        await expect(page.getByRole("article", { name: "Quiet Bob and Charlie", exact: true })).toHaveCount(0);
+        const people = page.getByRole("combobox", { name: "Filter by person", exact: true });
+        await expect(people).toHaveValue("");
+        await people.selectOption({ label: "Bob" });
+        await expect(bobCard).toBeVisible();
+        await expect(dmCard).toBeVisible();
+        await expect(charlieCard).toHaveCount(0);
+        await expect(ownCard).toHaveCount(0);
+        await people.selectOption({ label: "Charlie" });
+        await expect(charlieCard).toBeVisible();
+        await expect(bobCard).toHaveCount(0);
+        await expect(dmCard).toHaveCount(0);
+        await people.selectOption({ label: "Everyone I work with" });
+        await expect(bobCard).toBeVisible();
+        await expect(charlieCard).toBeVisible();
+        await expect(ownCard).toBeVisible();
+        await capturePreview(page, testInfo, "personal-board-participants-preview.png");
+    });
+
     test("manages named encrypted threads as a regular member and links them to cards", async ({
         page,
         app,

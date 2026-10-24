@@ -73,6 +73,7 @@ declare module "matrix-js-sdk/src/types" {
         };
         "com.matchahoneylatte.kanban.board": { version: 1 };
         "com.matchahoneylatte.kanban.card": {
+            "show_to_room"?: boolean;
             "due_at"?: number;
             "reminder_requested"?: { event_id: string; at: number };
             "version": 1;

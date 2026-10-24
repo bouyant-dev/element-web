@@ -36,6 +36,8 @@ export interface KanbanCard {
     column: KanbanColumn;
     archived: boolean;
     canEdit: boolean;
+    showToRoom?: boolean;
+    participants?: { userId: string; name: string }[];
     threadId?: string;
     dueAt?: number;
     reminderRequested?: { eventId: string; at: number };
@@ -60,10 +62,20 @@ export interface KanbanBoardSnapshot {
     busy: boolean;
     hasMore: boolean;
     showArchived: boolean;
+    people?: { userId: string; name: string }[];
+    personFilter?: string;
     error?: string;
     unreadable: boolean;
     canRemind?: boolean;
-    editor?: { id?: string; roomId: string; title: string; description: string; threadId?: string; dueAt?: string };
+    editor?: {
+        id?: string;
+        roomId: string;
+        title: string;
+        description: string;
+        threadId?: string;
+        dueAt?: string;
+        showToRoom?: boolean;
+    };
     threads: { id: string; title: string }[];
     threadsLoading: boolean;
     threadError?: string;
@@ -79,6 +91,8 @@ export interface KanbanBoardActions {
     setDescription: (value: string) => void;
     setThread: (id: string) => void;
     setDueAt: (value: string) => void;
+    setShowToRoom: (value: boolean) => void;
+    setPersonFilter: (userId: string) => void;
     remind: (card: KanbanCard) => Promise<void>;
     cancelEdit: () => void;
     save: () => Promise<void>;
@@ -191,6 +205,26 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                 )}
             </header>
             <div className={styles.toolbar}>
+                {state.universal && (
+                    <label className={styles.peopleFilter}>
+                        <Text as="span" size="sm">
+                            {_t("matcha_kanban|filter_people")}
+                        </Text>
+                        <select
+                            className={styles.statusSelect}
+                            value={state.personFilter ?? ""}
+                            disabled={disabled}
+                            onChange={(event) => vm.setPersonFilter(event.target.value)}
+                        >
+                            <option value="">{_t("matcha_kanban|all_people")}</option>
+                            {state.people?.map((person) => (
+                                <option key={person.userId} value={person.userId}>
+                                    {person.name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                )}
                 <Text size="sm" className={styles.cardCount}>
                     {_t("matcha_kanban|card_count", { count: visible.length })}
                 </Text>
@@ -287,6 +321,19 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                             onChange={(event) => vm.setDueAt(event.target.value)}
                         />
                     </label>
+                    <Form.InlineField
+                        name="kanban-show-to-room"
+                        control={
+                            <Form.ToggleControl
+                                checked={state.editor.showToRoom ?? !!state.editor.id}
+                                disabled={disabled}
+                                onChange={(event) => vm.setShowToRoom(event.currentTarget.checked)}
+                            />
+                        }
+                    >
+                        <Form.Label>{_t("matcha_kanban|show_to_room")}</Form.Label>
+                        <Form.HelpMessage>{_t("matcha_kanban|visibility_hint")}</Form.HelpMessage>
+                    </Form.InlineField>
                     <Text size="sm" className={styles.subtitle}>
                         {state.editor.threadId || !state.editor.id
                             ? _t("matcha_kanban|thread_card_hint")
@@ -350,6 +397,22 @@ export function KanbanBoardView({ vm }: { vm: KanbanBoardViewModel }): JSX.Eleme
                                                     />
                                                 )}
                                             </div>
+                                            {state.universal && (
+                                                <Text size="sm" className={styles.participants}>
+                                                    {card.participants?.length
+                                                        ? _t("matcha_kanban|with_people", {
+                                                              people: card.participants
+                                                                  .map((person) => person.name)
+                                                                  .join(", "),
+                                                          })
+                                                        : _t("matcha_kanban|alone")}
+                                                </Text>
+                                            )}
+                                            {(card.showToRoom ?? true) && (
+                                                <Text as="span" size="sm" className={styles.visibilityBadge}>
+                                                    {_t("matcha_kanban|show_to_room")}
+                                                </Text>
+                                            )}
                                             {card.description && (
                                                 <Text size="sm" className={styles.description}>
                                                     {card.description}
