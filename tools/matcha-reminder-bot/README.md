@@ -75,6 +75,7 @@ docker build -t matcha-reminder-bot:local .
 docker run -d --name matcha-reminder-bot --restart unless-stopped \
   --env-file /etc/matcha-reminder/environment \
   --volume /var/lib/matcha-reminder:/data \
+  --log-opt max-size=10m --log-opt max-file=3 \
   matcha-reminder-bot:local
 ```
 
