@@ -11,9 +11,33 @@ import { type Map as YMap } from "yjs";
 import {
     getRoomDocumentSession,
     isRoomDocumentId,
+    type RoomDocError,
     type RoomDocumentState,
     type RoomDocumentSession,
 } from "./documents";
+import { _t } from "../../languageHandler";
+
+/** Shared recovery messages for document contents and the encrypted document list. */
+export function documentErrorMessage(error?: RoomDocError): string | undefined {
+    switch (error) {
+        case "load_error":
+            return _t("matcha_docs|load_error");
+        case "decrypt_error":
+            return _t("matcha_docs|decrypt_error");
+        case "invalid_update":
+            return _t("matcha_docs|invalid_update");
+        case "incomplete_update":
+            return _t("matcha_docs|incomplete_update");
+        case "permission_error":
+            return _t("matcha_docs|permission_error");
+        case "send_error":
+            return _t("matcha_docs|send_error");
+        case "too_large_error":
+            return _t("matcha_docs|too_large_error");
+        case "anchor_error":
+            return _t("matcha_docs|anchor_error");
+    }
+}
 
 /** A shared document's stable identity and encrypted catalog metadata. */
 export interface SpaceDocument {

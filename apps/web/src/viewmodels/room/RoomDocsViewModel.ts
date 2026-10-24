@@ -9,10 +9,10 @@ import { BaseViewModel, type RoomDocsSnapshot, type RoomDocsActions } from "@ele
 import { RoomEvent, type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import type * as Y from "yjs";
 
-import { getRoomDocumentSession, type RoomDocumentSession, type RoomDocError } from "../../utils/matcha/documents";
+import { getRoomDocumentSession, type RoomDocumentSession } from "../../utils/matcha/documents";
 import { renderDocumentMarkdown } from "../../utils/matcha/renderDocumentMarkdown";
 import { _t } from "../../languageHandler";
-import { SpaceDocumentCatalog } from "../../utils/matcha/documentCatalog";
+import { SpaceDocumentCatalog, documentErrorMessage } from "../../utils/matcha/documentCatalog";
 
 /** The existing authenticated Matrix client and the currently joined chat. */
 export interface RoomDocsProps {
@@ -20,28 +20,6 @@ export interface RoomDocsProps {
     room: Room;
     readOnly?: boolean;
     documentId?: string;
-}
-
-/** Shared recovery messages for document contents and the encrypted document list. */
-export function documentErrorMessage(error?: RoomDocError): string | undefined {
-    switch (error) {
-        case "load_error":
-            return _t("matcha_docs|load_error");
-        case "decrypt_error":
-            return _t("matcha_docs|decrypt_error");
-        case "invalid_update":
-            return _t("matcha_docs|invalid_update");
-        case "incomplete_update":
-            return _t("matcha_docs|incomplete_update");
-        case "permission_error":
-            return _t("matcha_docs|permission_error");
-        case "send_error":
-            return _t("matcha_docs|send_error");
-        case "too_large_error":
-            return _t("matcha_docs|too_large_error");
-        case "anchor_error":
-            return _t("matcha_docs|anchor_error");
-    }
 }
 
 /** Bridges the shared Markdown editor/preview to the persistent in-memory room session. */

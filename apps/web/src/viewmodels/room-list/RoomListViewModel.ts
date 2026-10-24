@@ -63,8 +63,7 @@ import { spaceForRoomDocuments } from "../../utils/matcha/spaceDocuments";
 import { UPDATE_SELECTED_SPACE } from "../../stores/spaces";
 import Modal from "../../Modal";
 import TextInputDialog from "../../components/views/dialogs/TextInputDialog";
-import { SpaceDocumentCatalog, validSpaceDocumentName } from "../../utils/matcha/documentCatalog";
-import { documentErrorMessage } from "../room/RoomDocsViewModel";
+import { SpaceDocumentCatalog, documentErrorMessage, validSpaceDocumentName } from "../../utils/matcha/documentCatalog";
 
 /**
  * Tracks the position of the active room within a specific section.

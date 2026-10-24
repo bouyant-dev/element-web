@@ -16,6 +16,8 @@ import React, {
     type ReactNode,
     type RefObject,
     type JSX,
+    lazy,
+    Suspense,
     useEffect,
 } from "react";
 import classNames from "classnames";
@@ -67,7 +69,6 @@ import RightPanel from "./RightPanel";
 import SdkConfig from "../../SdkConfig";
 import { RoomThreadTabs } from "../views/rooms/RoomThreadTabs";
 import { KanbanBoard } from "../views/rooms/KanbanBoard";
-import { RoomDocs } from "../views/rooms/RoomDocs";
 import { spaceForRoomDocuments } from "../../utils/matcha/spaceDocuments";
 import RoomScrollStateStore, { type ScrollState } from "../../stores/RoomScrollStateStore";
 import WidgetEchoStore from "../../stores/WidgetEchoStore";
@@ -124,6 +125,7 @@ import NewRoomIntro from "../views/rooms/NewRoomIntro";
 import { isLocalRoom } from "../../utils/localRoom/isLocalRoom";
 import { type ShowThreadPayload } from "../../dispatcher/payloads/ShowThreadPayload";
 import { LargeLoader } from "./LargeLoader";
+import Spinner from "../views/elements/Spinner";
 import { isVideoRoom } from "../../utils/video-rooms";
 import { SDKContext } from "../../contexts/SDKContext";
 import { RoomSearchView } from "./RoomSearchView";
@@ -148,6 +150,9 @@ import { EncryptionEventViewModel } from "../../viewmodels/room/timeline/event-t
 import { ModuleApi } from "../../modules/Api.ts";
 import { RoomUploadContextProvider } from "../../viewmodels/room/RoomUploadViewModel.tsx";
 import { EventPresentationContextProvider } from "../../utils/EventPresentationContextProvider";
+
+// CodeMirror, y-codemirror and marked load only when Docs opens, not at every startup.
+const RoomDocs = lazy(() => import("../views/rooms/RoomDocs").then((module) => ({ default: module.RoomDocs })));
 
 const DEBUG = false;
 const PREVENT_MULTIPLE_JITSI_WITHIN = 30_000;
@@ -2807,7 +2812,9 @@ export class RoomView extends React.Component<IRoomProps, IRoomState> {
                     {threadInMain && <main className="mx_RoomView_threadTimeline">{rightPanel}</main>}
                     {docsInMain && (
                         <main className="mx_RoomView_board">
-                            <RoomDocs key={this.state.room.roomId} room={this.state.room} readOnly />
+                            <Suspense fallback={<Spinner />}>
+                                <RoomDocs key={this.state.room.roomId} room={this.state.room} readOnly />
+                            </Suspense>
                         </main>
                     )}
                     {boardInMain && (
