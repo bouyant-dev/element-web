@@ -321,6 +321,17 @@ describe("room document transport", () => {
         expect(client.fetchRelations).toHaveBeenCalledOnce();
     });
 
+    it("applies a live frame whose decrypted copy arrives only through the Decrypted event", async () => {
+        // In an encrypted Space a live frame reaches the timeline before its keys; its readable copy comes with Decrypted.
+        vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [] });
+        await session.retry();
+        expect(session.getState().ready).toBe(true);
+        const live = new MatrixEvent(wire(documentFrames(updateFor("Live edit"), anchor, "live")[0]));
+        client.emit(MatrixEventEvent.Decrypted, live);
+        await vi.waitFor(() => expect(session.text.toJSON()).toBe("Live edit"));
+        expect(client.fetchRelations).toHaveBeenCalledOnce();
+    });
+
     it("retries after missing keys arrive for its failed event, not for other decryptions in the room", async () => {
         const raw = wire(documentFrames(updateFor("Private"), anchor, "a")[0]);
         vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [raw] });

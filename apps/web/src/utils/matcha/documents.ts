@@ -270,7 +270,8 @@ export class RoomDocumentSession extends EventTarget {
         else
             this.liveTask = this.liveTask
                 .then(async () => {
-                    await this.ingest(event);
+                    // History replays decrypt the same frames again; those bring nothing new and announce nothing.
+                    if (!(await this.ingest(event))) return;
                     if (this.hasMissingUpdates() && (!this.error || this.error === "incomplete_update")) {
                         this.error = "incomplete_update";
                         this.ready = false;
@@ -284,16 +285,17 @@ export class RoomDocumentSession extends EventTarget {
                 .catch((error) => this.fail(error));
     };
     private onDecrypted = (event: MatrixEvent): void => {
-        // Live events already arrive through RoomEvent.Timeline. Any session's history replay decrypts events too,
-        // so only keys arriving for an event this session could not read may start another load.
-        if (
-            !this.loading &&
-            !this.disposed &&
-            this.error === "decrypt_error" &&
-            !event.isDecryptionFailure() &&
-            this.failedIds.has(event.getId() ?? "")
-        )
-            void this.retry();
+        // Fetching history itself decrypts events; it must not start another history load.
+        if (this.loading || this.disposed || event.getRoomId() !== this.room.roomId) return;
+        // Only keys arriving for an event this session could not read restart the history load: every session's history
+        // replay decrypts events too.
+        if (this.error === "decrypt_error") {
+            if (!event.isDecryptionFailure() && this.failedIds.has(event.getId() ?? "")) void this.retry();
+            return;
+        }
+        // In an encrypted Space a live frame reaches RoomEvent.Timeline before its keys, so its decrypted copy arrives here.
+        // onTimeline skips frames it has already read, so other sessions' history decryptions change nothing.
+        this.onTimeline(event);
     };
     private onState = (event: MatrixEvent): void => {
         if (event.getRoomId() === this.room.roomId) this.permissionsChanged();
@@ -329,11 +331,12 @@ export class RoomDocumentSession extends EventTarget {
         this.doc.store.pendingDs !== null ||
         [...this.incoming.values()].some((packet) => packet.committed && packet.parts.size !== packet.count);
 
-    private ingest = async (event: MatrixEvent, raw?: Partial<IEvent>): Promise<void> => {
+    /** Reads one frame; resolves to false when it brought nothing new (already seen, not a frame, or already applied). */
+    private ingest = async (event: MatrixEvent, raw?: Partial<IEvent>): Promise<boolean> => {
         const id = event.getId();
-        if (this.disposed || (id && this.seenEvents.has(id))) return;
+        if (this.disposed || (id && this.seenEvents.has(id))) return false;
         event = await decryptMatrixEventWithRetry(this.client, event, raw);
-        if (this.disposed) return;
+        if (this.disposed) return false;
         if (event.isDecryptionFailure()) {
             if (id) this.failedIds.add(id);
             throw new DocumentError("decrypt_error");
@@ -342,12 +345,12 @@ export class RoomDocumentSession extends EventTarget {
         const frame = readFrame(event, this.room.roomId, this.anchor!, this.docId);
         if (!frame) {
             if (id) this.seenEvents.add(id);
-            return;
+            return false;
         }
         const key = event.getSender() + ":" + frame.update_id;
         if (this.applied.has(key)) {
             if (id) this.seenEvents.add(id);
-            return;
+            return false;
         }
         const packet = this.incoming.get(key) ?? {
             count: frame.chunks,
@@ -390,6 +393,7 @@ export class RoomDocumentSession extends EventTarget {
             this.incoming.delete(key);
         }
         if (id) this.seenEvents.add(id);
+        return true;
     };
 
     /** Replay every accessible document relation before enabling edits, retaining local unsent changes. */
