@@ -288,6 +288,38 @@ describe("room document transport", () => {
         expect(session.text.toJSON()).toBe("Once");
     });
 
+    it("ignores another session's history decryptions instead of dispatching a change for each", async () => {
+        const raw = wire(documentFrames(updateFor("Shared"), anchor, "one")[0]);
+        vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [raw] });
+        await session.retry();
+        const changed = vi.fn();
+        session.addEventListener("change", changed);
+        client.emit(MatrixEventEvent.Decrypted, new MatrixEvent(raw));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(changed).not.toHaveBeenCalled();
+        expect(client.fetchRelations).toHaveBeenCalledOnce();
+    });
+
+    it("retries after missing keys arrive for its failed event, not for other decryptions in the room", async () => {
+        const raw = wire(documentFrames(updateFor("Private"), anchor, "a")[0]);
+        vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [raw] });
+        let missingKeys = true;
+        vi.mocked(client.decryptEventIfNeeded).mockImplementation(async (event) => {
+            if (missingKeys) vi.spyOn(event, "isDecryptionFailure").mockReturnValue(true);
+        });
+        await session.retry();
+        expect(session.getState().error).toBe("decrypt_error");
+        const other = new MatrixEvent(wire(documentFrames(updateFor("Other"), anchor, "b")[0]));
+        client.emit(MatrixEventEvent.Decrypted, other);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(client.fetchRelations).toHaveBeenCalledOnce();
+        missingKeys = false;
+        client.emit(MatrixEventEvent.Decrypted, new MatrixEvent(raw));
+        await vi.waitFor(() => expect(session.getState()).toMatchObject({ ready: true, error: undefined }));
+        expect(session.text.toJSON()).toBe("Private");
+        expect(client.fetchRelations).toHaveBeenCalledTimes(2);
+    });
+
     it("blocks edits when a complete Yjs update depends on missing history, then recovers when it arrives", async () => {
         const author = new Y.Doc();
         const updates: Uint8Array[] = [];

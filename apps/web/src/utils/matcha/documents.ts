@@ -182,6 +182,7 @@ export class RoomDocumentSession extends EventTarget {
     private incoming = new Map<string, IncomingPacket>();
     private applied = new Set<string>();
     private seenEvents = new Set<string>();
+    private failedIds = new Set<string>();
     private liveQueue: MatrixEvent[] = [];
     private liveTask: Promise<void> = Promise.resolve();
     private loadTask?: Promise<void>;
@@ -272,10 +273,16 @@ export class RoomDocumentSession extends EventTarget {
                 .catch((error) => this.fail(error));
     };
     private onDecrypted = (event: MatrixEvent): void => {
-        // Fetching history itself decrypts events; it must not start another history load.
-        if (this.loading || this.disposed || event.getRoomId() !== this.room.roomId) return;
-        if (this.error === "decrypt_error") void this.retry();
-        else this.onTimeline(event);
+        // Live events already arrive through RoomEvent.Timeline. Any session's history replay decrypts events too,
+        // so only keys arriving for an event this session could not read may start another load.
+        if (
+            !this.loading &&
+            !this.disposed &&
+            this.error === "decrypt_error" &&
+            !event.isDecryptionFailure() &&
+            this.failedIds.has(event.getId() ?? "")
+        )
+            void this.retry();
     };
     private onState = (event: MatrixEvent): void => {
         if (event.getRoomId() === this.room.roomId) this.permissionsChanged();
@@ -316,7 +323,11 @@ export class RoomDocumentSession extends EventTarget {
         if (this.disposed || (id && this.seenEvents.has(id))) return;
         event = await decryptMatrixEventWithRetry(this.client, event, raw);
         if (this.disposed) return;
-        if (event.isDecryptionFailure()) throw new DocumentError("decrypt_error");
+        if (event.isDecryptionFailure()) {
+            if (id) this.failedIds.add(id);
+            throw new DocumentError("decrypt_error");
+        }
+        if (id) this.failedIds.delete(id);
         const frame = readFrame(event, this.room.roomId, this.anchor!, this.docId);
         if (!frame) {
             if (id) this.seenEvents.add(id);
