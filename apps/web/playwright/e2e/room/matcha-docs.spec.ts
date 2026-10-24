@@ -498,7 +498,10 @@ test.describe("Matcha shared Space Docs", () => {
             );
             await expect(bobDocs.getByRole("heading", { name: "Launch guide", exact: true })).toBeVisible();
             await expect(bobEditor).toContainText("Only the release document");
-            await expect(aliceDocs.getByRole("heading", { name: "Incident handbook", exact: true })).toBeVisible();
+            // The document's title; its Markdown preview also renders "# Incident handbook" as a heading.
+            await expect(
+                aliceDocs.getByRole("heading", { name: "Incident handbook", exact: true, level: 2 }),
+            ).toBeVisible();
 
             await savedDocuments.getByRole("button", { name: "Launch guide", exact: true }).click();
             await expect(alicePage).toHaveURL(
@@ -519,6 +522,10 @@ test.describe("Matcha shared Space Docs", () => {
                 (url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs&doc=${secondDocId}`,
             );
             await bobDocuments.getByRole("button", { name: "Incident handbook", exact: true }).click();
+            // The route changes after the click; reloading before it does would restore Bob's previous document.
+            await expect(bobPage).toHaveURL(
+                (url) => decodeURIComponent(url.hash) === `#/room/${spaceId}?view=docs&doc=${secondDocId}`,
+            );
             await Promise.all([alicePage.reload(), bobPage.reload()]);
             for (const page of [alicePage, bobPage]) {
                 await expect(page).toHaveURL(
