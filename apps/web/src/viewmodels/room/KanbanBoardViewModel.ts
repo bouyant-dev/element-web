@@ -400,23 +400,17 @@ export class KanbanBoardViewModel
         });
         if (this.isDisposed || room.getMyMembership() !== "join") return;
         const participants = board.participants.get(threadId) ?? new Set<string>();
+        // Sender, redaction and relation are cleartext: replies are never decrypted just to list people.
         for (const raw of result.chunk) {
-            if (raw.room_id && raw.room_id !== room.roomId) continue;
-            const wire = { ...raw, room_id: room.roomId };
-            const event = await decryptMatrixEventWithRetry(
-                this.props.client,
-                this.props.client.getEventMapper()(wire),
-                wire,
-            );
-            if (event.isDecryptionFailure()) board.unreadable = true;
-            const relation = event.getRelation();
+            const relation = raw.content?.["m.relates_to"];
             if (
-                !event.isRedacted() &&
-                event.getSender() &&
+                (!raw.room_id || raw.room_id === room.roomId) &&
+                !raw.unsigned?.redacted_because &&
+                raw.sender &&
                 relation?.rel_type === RelationType.Thread &&
                 relation.event_id === threadId
             )
-                participants.add(event.getSender()!);
+                participants.add(raw.sender);
         }
         board.participants.set(threadId, participants);
         if (result.next_batch && result.next_batch === from) throw new Error("Thread participant pagination stalled");
@@ -455,7 +449,14 @@ export class KanbanBoardViewModel
                         const root = await resolveThreadRoot(client, room, id);
                         const metadata = await readThreadMetadata(client, room, root);
                         const thread = room.getThread(id);
-                        const needsParticipants = fetch || !board.participantPages.has(id);
+                        // Participant sets only grow and live replies merge from thread.events below, so read the
+                        // first reply page only for a thread not yet paged that is not wholly loaded locally.
+                        const needsParticipants =
+                            !board.participantPages.has(id) &&
+                            !(
+                                thread?.initialEventsFetched &&
+                                !thread.liveTimeline.getPaginationToken(Direction.Backward)
+                            );
                         const participants = board.participants.get(id) ?? new Set<string>();
                         if (root.getSender()) participants.add(root.getSender()!);
                         if (
@@ -530,12 +531,11 @@ export class KanbanBoardViewModel
             this.snapshot.merge({ loading: !this.loaded });
             const boards = new Map<string, BoardData>();
             let failed = false;
-            for (const room of this.joinedRooms()) {
-                if (this.isDisposed || generation !== this.generation) return;
+            const loadRoom = async (room: Room): Promise<void> => {
                 const rootId =
                     rootIdFromContent(room.currentState.getStateEvents(KANBAN_STATE_EVENT, "")?.getContent() ?? {}) ??
                     (room === this.props.room ? this.createdRootId : undefined);
-                if (!rootId) continue;
+                if (!rootId) return;
                 const previousBoard = this.boards.get(room.roomId);
                 const board: BoardData = {
                     rootId,
@@ -565,7 +565,17 @@ export class KanbanBoardViewModel
                     if (previous?.rootId === rootId) boards.set(room.roomId, previous);
                 }
                 failed = (await this.projectThreads(room, boards.get(room.roomId)!)) || failed;
-            }
+            };
+            // Four rooms at a time; each room already bounds its own thread reads.
+            const queue = this.joinedRooms();
+            await Promise.all(
+                Array.from({ length: 4 }, async () => {
+                    for (let room = queue.shift(); room; room = queue.shift()) {
+                        if (this.isDisposed || generation !== this.generation) return;
+                        await loadRoom(room);
+                    }
+                }),
+            );
             if (this.isDisposed || generation !== this.generation) return;
             this.boards = boards;
             this.loaded = true;

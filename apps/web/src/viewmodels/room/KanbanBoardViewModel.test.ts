@@ -433,7 +433,7 @@ describe("KanbanBoardViewModel", () => {
         expect(vm.getSnapshot().hasMore).toBe(false);
     });
 
-    it("accepts encrypted replies but ignores foreign, redacted and non-thread events for participation", async () => {
+    it("reads encrypted replies' cleartext senders without decrypting them, ignoring foreign, redacted and non-thread events", async () => {
         const root = makeThread();
         root.event.sender = "@bob:server";
         events = [];
@@ -450,7 +450,8 @@ describe("KanbanBoardViewModel", () => {
             chunk:
                 relation === RelationType.Thread
                     ? [
-                          { ...reply("$encrypted", client.getSafeUserId()), type: EventType.RoomMessageEncrypted },
+                          reply("$mine", client.getSafeUserId()),
+                          { ...reply("$encrypted", "@carol:server"), type: EventType.RoomMessageEncrypted },
                           { ...reply("$foreign", "@foreign:server"), room_id: "!elsewhere:server" },
                           reply("$reaction", "@reactor:server", RelationType.Annotation),
                           {
@@ -461,16 +462,51 @@ describe("KanbanBoardViewModel", () => {
                     : [],
         }));
         vi.mocked(client.decryptEventIfNeeded).mockImplementation(async (event) => {
-            if (event.getId() === "$encrypted") {
-                vi.spyOn(event, "getType").mockReturnValue(EventType.RoomMessage);
-                vi.spyOn(event, "getContent").mockReturnValue(reply("$clear", client.getSafeUserId()).content!);
-                vi.spyOn(event, "getRelation").mockReturnValue({ rel_type: RelationType.Thread, event_id: "$thread" });
-            }
+            if (event.getId() === "$encrypted") vi.spyOn(event, "isDecryptionFailure").mockReturnValue(true);
         });
         vm = new KanbanBoardViewModel({ rightPanelStore, client });
         await vm.reload();
         expect(vm.getSnapshot().cards).toHaveLength(1);
-        expect(vm.getSnapshot().people?.map((person) => person.userId)).toEqual(["@bob:server"]);
+        expect(vm.getSnapshot().people?.map((person) => person.userId)).toEqual(["@bob:server", "@carol:server"]);
+        // An unreadable chat reply is not an unreadable card update.
+        expect(vm.getSnapshot().unreadable).toBe(false);
+        expect(
+            vi.mocked(client.decryptEventIfNeeded).mock.calls.some(([event]) => event.getId() === "$encrypted"),
+        ).toBe(false);
+    });
+
+    it("reads a thread's people once instead of refetching its replies on every reload", async () => {
+        makeThread();
+        events = [];
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vm.reload();
+        vi.mocked(client.fetchRelations).mockClear();
+        await vm.reload();
+        expect(client.fetchRelations).toHaveBeenCalled();
+        expect(client.fetchRelations).not.toHaveBeenCalledWith(
+            room.roomId,
+            "$thread",
+            RelationType.Thread,
+            null,
+            expect.anything(),
+        );
+    });
+
+    it("loads four board rooms at a time and publishes them together", async () => {
+        const rooms = [room, ...["!b:server", "!c:server", "!d:server", "!e:server"].map((id) => makeRoom(id))];
+        vi.mocked(client.getRooms).mockReturnValue(rooms);
+        vi.mocked(client.getRoom).mockImplementation((id) => rooms.find((source) => source.roomId === id) ?? null);
+        let inFlight = 0;
+        let peak = 0;
+        vi.mocked(client.fetchRelations).mockImplementation(async (roomId) => {
+            peak = Math.max(peak, ++inFlight);
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            inFlight--;
+            return { chunk: [revision("one", "Card", {}, roomId)] };
+        });
+        vm = new KanbanBoardViewModel({ rightPanelStore, client });
+        await vi.waitFor(() => expect(vm!.getSnapshot().cards).toHaveLength(5));
+        expect(peak).toBe(4);
     });
 
     it("includes DM cards before I reply and updates when direct-message account data changes", async () => {
