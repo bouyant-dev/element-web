@@ -228,6 +228,27 @@ describe("room document transport", () => {
         expect(session.getState()).toMatchObject({ ready: false, canEdit: false, error: "invalid_update" });
     });
 
+    it("replays many updates against one persistent probe and announces the result once", async () => {
+        const author = new Y.Doc();
+        const updates: Uint8Array[] = [];
+        author.on("update", (update: Uint8Array) => updates.push(update));
+        for (let index = 0; index < 20; index++) author.getText("markdown").insert(index, "x");
+        const bad = wire(documentFrames(new Uint8Array([255, 255, 255]), anchor, "bad")[0]);
+        const history = updates.map((update, index) => wire(documentFrames(update, anchor, `u${index}`)[0]));
+        vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [...history.slice(10).reverse(), bad] });
+        await session.retry();
+        expect(session.getState().error).toBe("invalid_update");
+        // The rejected update must not leave the probe unable to validate the rest of the history.
+        vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: history.slice().reverse() });
+        const changed = vi.fn();
+        session.addEventListener("change", changed);
+        await session.retry();
+        expect(session.text.toJSON()).toBe("x".repeat(20));
+        expect(session.getState()).toMatchObject({ ready: true, error: undefined });
+        expect(changed).toHaveBeenCalledTimes(2);
+        author.destroy();
+    });
+
     it("blocks editing on missing encryption keys rather than treating history as empty", async () => {
         const raw = wire(documentFrames(updateFor("Private"), anchor, "a")[0]);
         vi.mocked(client.fetchRelations).mockResolvedValue({ chunk: [raw] });

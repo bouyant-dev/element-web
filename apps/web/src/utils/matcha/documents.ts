@@ -166,10 +166,19 @@ function readFrame(event: MatrixEvent, roomId: string, anchor: string, docId: st
     return value as RoomDocFrame;
 }
 
+function mirror(doc: Y.Doc): Y.Doc {
+    const probe = new Y.Doc();
+    probe.getText("markdown");
+    Y.applyUpdate(probe, Y.encodeStateAsUpdate(doc));
+    return probe;
+}
+
 /** Retained editor session: failed/unacknowledged changes outlive a view unmount. */
 export class RoomDocumentSession extends EventTarget {
     public readonly doc = new Y.Doc();
     public readonly text = this.doc.getText("markdown");
+    /** Mirrors doc, so a remote update is validated without re-encoding the whole document each time. */
+    private probe = mirror(this.doc);
     private refs = 1;
     private disposed = false;
     private anchor?: string;
@@ -238,13 +247,15 @@ export class RoomDocumentSession extends EventTarget {
     };
     private onUpdate = (update: Uint8Array, origin: unknown): void => {
         if (origin !== REMOTE_ORIGIN) {
+            Y.applyUpdate(this.probe, update);
             this.buffered.push(update.slice());
             clearTimeout(this.timer);
             this.timer = setTimeout(() => {
                 void this.flush();
             }, 500);
         }
-        this.changed();
+        // A history replay announces its result once, when load() finishes.
+        if (origin !== REMOTE_ORIGIN || !this.loading) this.changed();
     };
     private onTimeline = (event: MatrixEvent): void => {
         if (
@@ -366,15 +377,13 @@ export class RoomDocumentSession extends EventTarget {
                 update.set(part, offset);
                 offset += part.length;
             }
-            const probe = new Y.Doc();
             try {
-                probe.getText("markdown");
-                Y.applyUpdate(probe, Y.encodeStateAsUpdate(this.doc));
-                Y.applyUpdate(probe, update);
+                Y.applyUpdate(this.probe, update);
             } catch {
+                // The failed update may have partly changed the probe; rebuild it from the untouched document.
+                this.probe.destroy();
+                this.probe = mirror(this.doc);
                 throw new DocumentError("invalid_update");
-            } finally {
-                probe.destroy();
             }
             Y.applyUpdate(this.doc, update, REMOTE_ORIGIN);
             this.applied.add(key);
@@ -526,6 +535,7 @@ export class RoomDocumentSession extends EventTarget {
         window.removeEventListener("beforeunload", this.beforeUnload);
         this.doc.off("update", this.onUpdate);
         this.doc.destroy();
+        this.probe.destroy();
         this.onUnused();
     };
 }
