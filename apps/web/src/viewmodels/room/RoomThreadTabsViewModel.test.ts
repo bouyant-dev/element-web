@@ -242,9 +242,27 @@ describe("RoomThreadTabsViewModel", () => {
             room_id: room.roomId,
             content: { "version": 1, "name": "New", "m.relates_to": { rel_type: "m.reference", event_id: "$root" } },
         });
-        client.emit(MatrixEventEvent.Decrypted, revision);
+        client.emit(RoomEvent.Timeline, revision, room, false, false, {
+            timeline: room.getLiveTimeline(),
+            liveEvent: true,
+        });
         await vi.waitFor(() => expect(vm.getSnapshot().error).toBe(_t("matcha_threads|metadata_network_error")));
         expect(vm.getSnapshot().threads[0].canManage).toBe(false);
+    });
+
+    it("ignores the board's history decryptions for threads whose metadata already loaded", async () => {
+        vi.mocked(client.fetchRelations).mockClear();
+        vi.useFakeTimers();
+        const patch = new MatrixEvent({
+            event_id: "$patch",
+            type: THREAD_METADATA_EVENT,
+            room_id: room.roomId,
+            content: { "version": 1, "name": "Old", "m.relates_to": { rel_type: "m.reference", event_id: "$root" } },
+        });
+        client.emit(MatrixEventEvent.Decrypted, patch);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).not.toHaveBeenCalled();
+        expect(vm.getSnapshot().threads[0].canManage).toBe(true);
     });
 
     it("recovers a failed thread when its keys arrive during a different metadata batch", async () => {

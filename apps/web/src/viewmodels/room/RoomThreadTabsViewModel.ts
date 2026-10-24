@@ -93,8 +93,9 @@ export class RoomThreadTabsViewModel
             const event = args[0];
             if (!(event instanceof MatrixEvent) || args[1] || event.isDecryptionFailure()) return;
             const id = this.eventRootId(event);
-            // Ignore our successful history reads, but keep a keys-arrived recovery for an earlier failed batch.
-            if (!this.loadingMetadata || (id && this.metadataErrors.has(id))) {
+            // Live patches arrive through RoomEvent.Timeline, whose cleartext relation needs no decryption. Every
+            // history read (ours, the board's) decrypts too, so only keys for a thread that failed start a read.
+            if (id && this.metadataErrors.has(id)) {
                 this.onEvent(event);
                 if (this.loadingMetadata) this.loadAgain = true;
             }

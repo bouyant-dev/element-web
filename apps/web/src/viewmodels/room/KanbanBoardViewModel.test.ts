@@ -610,6 +610,68 @@ describe("KanbanBoardViewModel", () => {
         expect(client.fetchRelations).toHaveBeenCalledTimes(1);
     });
 
+    it("ignores other readers' history decryptions and reloads once keys arrive for an unreadable revision", async () => {
+        makeThread();
+        events = [revision("one", "Plan release"), { ...revision("locked", "Locked"), type: "m.room.encrypted" }];
+        let missingKeys = true;
+        vi.mocked(client.decryptEventIfNeeded).mockImplementation(async (event) => {
+            if (missingKeys && event.getId() === "$lockedLocked")
+                vi.spyOn(event, "isDecryptionFailure").mockReturnValue(true);
+        });
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        expect(vm.getSnapshot().unreadable).toBe(true);
+        vi.useFakeTimers();
+        vi.mocked(client.fetchRelations).mockClear();
+        // The thread tabs re-reading a rename decrypt a fresh copy of the patch; that is not new board data.
+        const patch = new MatrixEvent({
+            event_id: "$rename",
+            room_id: room.roomId,
+            type: THREAD_METADATA_EVENT,
+            content: {
+                "version": 1,
+                "name": "Renamed",
+                "m.relates_to": { rel_type: RelationType.Reference, event_id: "$thread" },
+            },
+        });
+        client.emit(MatrixEventEvent.Decrypted, patch);
+        const stillLocked = new MatrixEvent({ ...events[1] });
+        vi.spyOn(stillLocked, "isDecryptionFailure").mockReturnValue(true);
+        client.emit(MatrixEventEvent.Decrypted, stillLocked);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).not.toHaveBeenCalled();
+        missingKeys = false;
+        client.emit(MatrixEventEvent.Decrypted, new MatrixEvent({ ...events[1] }));
+        await vi.advanceTimersByTimeAsync(301);
+        expect(client.fetchRelations).toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(vm.getSnapshot().unreadable).toBe(false);
+    });
+
+    it("reloads for a live encrypted rename by its cleartext relation, but not for encrypted chat during a reload", async () => {
+        makeThread();
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        vi.useFakeTimers();
+        const encrypted = (id: string, content: Record<string, unknown>) =>
+            new MatrixEvent({ event_id: id, room_id: room.roomId, type: "m.room.encrypted", content });
+        const refresh = vm.reload();
+        client.emit(ClientEvent.Event, encrypted("$chat", { ciphertext: "hello" }));
+        await refresh;
+        vi.mocked(client.fetchRelations).mockClear();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(client.fetchRelations).not.toHaveBeenCalled();
+        client.emit(
+            ClientEvent.Event,
+            encrypted("$rename", {
+                "ciphertext": "renamed",
+                "m.relates_to": { rel_type: RelationType.Reference, event_id: "$thread" },
+            }),
+        );
+        await vi.advanceTimersByTimeAsync(301);
+        expect(client.fetchRelations).toHaveBeenCalled();
+    });
+
     it("exits the recap before navigating even when the source is the current room", async () => {
         const onOpenRoom = vi.fn();
         vm = new KanbanBoardViewModel({ rightPanelStore, client, onOpenRoom });

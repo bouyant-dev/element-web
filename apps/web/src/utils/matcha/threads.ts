@@ -48,6 +48,8 @@ export class ThreadMetadataReadError extends Error {
     public constructor(
         public readonly kind: ThreadMetadataErrorKind,
         message: string,
+        /** The event that could not be decrypted, so a reader can wait for its keys. */
+        public readonly eventId?: string,
     ) {
         super(message);
     }
@@ -92,10 +94,10 @@ async function decryptThreadEvent(
             event.decryptionFailureReason && missingKeyReasons.has(event.decryptionFailureReason)
                 ? "keys"
                 : "decryption";
-        throw new ThreadMetadataReadError(kind, "Thread details could not be decrypted");
+        throw new ThreadMetadataReadError(kind, "Thread details could not be decrypted", event.getId());
     }
     if (event.isEncrypted() && !event.getClearContent() && !event.isRedacted())
-        throw new ThreadMetadataReadError("decryption", "Thread encryption is not ready");
+        throw new ThreadMetadataReadError("decryption", "Thread encryption is not ready", event.getId());
     return event;
 }
 

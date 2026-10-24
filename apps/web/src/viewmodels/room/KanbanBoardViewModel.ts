@@ -43,6 +43,7 @@ import {
     updateThreadMetadata,
     canManageThreads,
     validThreadName,
+    ThreadMetadataReadError,
     THREAD_METADATA_EVENT,
     type ThreadMetadataPatch,
     type ThreadMetadata,
@@ -157,6 +158,8 @@ export class KanbanBoardViewModel
     private loaded = false;
     private readingHistory = 0;
     private historyDirty = false;
+    /** Events this board could not decrypt; keys arriving for one of them start a reload. */
+    private failedIds = new Set<string>();
 
     public constructor(props: KanbanBoardProps) {
         super(props, {
@@ -295,12 +298,16 @@ export class KanbanBoardViewModel
             this.boards.get(roomId)?.rootId ??
             rootIdFromContent(room.currentState.getStateEvents(KANBAN_STATE_EVENT, "")?.getContent() ?? {});
         if (!rootId) return;
+        const relation = event.getRelation();
+        const target = relation?.event_id ?? "";
         if (
             event.getType() === THREAD_METADATA_EVENT ||
-            event.getRelation()?.rel_type === RelationType.Thread ||
+            relation?.rel_type === RelationType.Thread ||
             event.isThreadRoot ||
-            rootId === event.getRelation()?.event_id ||
-            (this.readingHistory > 0 && event.isEncrypted())
+            rootId === target ||
+            // An encrypted metadata patch is recognised by its cleartext relation to a thread, before decryption.
+            (relation?.rel_type === RelationType.Reference &&
+                (!!room.getThread(target) || !!this.boards.get(roomId)?.threads.has(target)))
         ) {
             if (this.readingHistory > 0) this.historyDirty = true;
             else this.scheduleReload();
@@ -308,8 +315,10 @@ export class KanbanBoardViewModel
     };
 
     private onDecrypted = (event: MatrixEvent): void => {
-        // Decrypting fetched history must not trigger another history fetch.
-        if (this.readingHistory === 0) this.onEvent(event);
+        // Every history read (this board's, the thread tabs', the SDK's thread setup) decrypts fresh copies of old
+        // events, and live events are classified on cleartext in onEvent. Only keys for an event this board could
+        // not read start a reload.
+        if (!event.isDecryptionFailure() && this.failedIds.delete(event.getId() ?? "")) this.scheduleReload();
     };
 
     private onState = (event: MatrixEvent): void => {
@@ -372,6 +381,7 @@ export class KanbanBoardViewModel
                 );
                 if (event.isDecryptionFailure()) {
                     board.unreadable = true;
+                    if (event.getId()) this.failedIds.add(event.getId()!);
                     continue;
                 }
                 const card = cardFromEvent(event, room, board.rootId);
@@ -511,6 +521,8 @@ export class KanbanBoardViewModel
                     if (result.status === "fulfilled") board.projected.set(result.value.id, result.value);
                     else {
                         failed = true;
+                        if (result.reason instanceof ThreadMetadataReadError && result.reason.eventId)
+                            this.failedIds.add(result.reason.eventId);
                         const previous = grouped.get(threadIds[offset + index]);
                         if (previous?.length)
                             board.projected.set(previous[0].id, { ...previous[0], earlierCards: previous.slice(1) });
