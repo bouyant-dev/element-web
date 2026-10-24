@@ -162,6 +162,7 @@ export class KanbanBoardViewModel
     private failedIds = new Set<string>();
     /** Events this board sent and already reloaded for; their sync echoes are not news. */
     private ownEchoes = new Set<string>();
+    private publishQueued = false;
 
     public constructor(props: KanbanBoardProps) {
         super(props, {
@@ -195,7 +196,10 @@ export class KanbanBoardViewModel
         this.disposables.trackListener(props.client, ClientEvent.AccountData, (event) => {
             if ((event as MatrixEvent).getType() === EventType.Direct) this.publish();
         });
-        this.disposables.trackListener(props.client, RoomMemberEvent.Name, () => this.publish());
+        this.disposables.trackListener(props.client, RoomMemberEvent.Name, (_event, member) => {
+            // Only names in board rooms appear on cards; lazily loading a room's members emits one Name per member.
+            if (this.boards.has((member as RoomMember).roomId)) this.schedulePublish();
+        });
         this.disposables.track(() => clearTimeout(this.refreshTimer));
         void this.reload();
     }
@@ -289,6 +293,15 @@ export class KanbanBoardViewModel
                         !!source.threadsTimelineSets[0]?.getLiveTimeline().getPaginationToken(EventTimeline.BACKWARDS)),
             ),
             unreadable: rooms.some((source) => !!this.boards.get(source.roomId)?.unreadable),
+        });
+    };
+
+    private schedulePublish = (): void => {
+        if (this.publishQueued) return;
+        this.publishQueued = true;
+        queueMicrotask(() => {
+            this.publishQueued = false;
+            this.publish();
         });
     };
 

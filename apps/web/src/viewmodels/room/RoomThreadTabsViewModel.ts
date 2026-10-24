@@ -100,7 +100,10 @@ export class RoomThreadTabsViewModel
                 if (this.loadingMetadata) this.loadAgain = true;
             }
         });
-        this.disposables.trackListener(props.client, RoomStateEvent.Events, this.refresh);
+        this.disposables.trackListener(props.client, RoomStateEvent.Events, (event) => {
+            // Thread permissions and legacy archive state come from this room's state only.
+            if ((event as MatrixEvent).getRoomId() === props.room.roomId) this.refresh();
+        });
         this.disposables.trackListener(props.rightPanelStore, UPDATE_EVENT, this.onThreadsChanged);
         this.disposables.track(() => clearTimeout(this.refreshTimer));
         this.refresh();

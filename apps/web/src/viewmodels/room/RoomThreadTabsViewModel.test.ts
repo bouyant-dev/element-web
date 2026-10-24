@@ -14,6 +14,7 @@ import {
     ThreadEvent,
     MatrixEventEvent,
     RoomEvent,
+    RoomStateEvent,
     EventTimeline,
     type MatrixClient,
     type Thread,
@@ -377,6 +378,17 @@ describe("RoomThreadTabsViewModel", () => {
         await vi.waitFor(() => expect(vm.getSnapshot().threads[0].title).toBe("Live name"));
         expect(client.fetchRelations).toHaveBeenCalledTimes(2);
         expect(vm.getSnapshot().threads[0].archived).toBe(true);
+    });
+
+    it("refreshes for this room's state but not for state in other rooms", () => {
+        const refreshed = vi.fn();
+        vm.subscribe(refreshed);
+        const state = (roomId: string) =>
+            new MatrixEvent({ room_id: roomId, type: "m.room.topic", state_key: "", content: {} });
+        client.emit(RoomStateEvent.Events, state("!elsewhere:server"), room.currentState, null);
+        expect(refreshed).not.toHaveBeenCalled();
+        client.emit(RoomStateEvent.Events, state(room.roomId), room.currentState, null);
+        expect(refreshed).toHaveBeenCalled();
     });
 
     it("prevents duplicate reminder dialogs and releases its listeners", async () => {

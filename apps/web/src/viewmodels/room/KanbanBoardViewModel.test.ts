@@ -749,6 +749,21 @@ describe("KanbanBoardViewModel", () => {
         expect(client.fetchRelations).not.toHaveBeenCalled();
     });
 
+    it("publishes member name changes once per batch and only for board rooms", async () => {
+        vm = new KanbanBoardViewModel({ rightPanelStore, room, client });
+        await vm.reload();
+        const published = vi.fn();
+        vm.subscribe(published);
+        const member = (roomId: string) => ({ roomId, userId: "@bob:server" }) as RoomMember;
+        client.emit(RoomMemberEvent.Name, new MatrixEvent(), member("!elsewhere:server"), null);
+        await Promise.resolve();
+        expect(published).not.toHaveBeenCalled();
+        for (let index = 0; index < 3; index++)
+            client.emit(RoomMemberEvent.Name, new MatrixEvent(), member(room.roomId), null);
+        await Promise.resolve();
+        expect(published).toHaveBeenCalledOnce();
+    });
+
     it("exits the recap before navigating even when the source is the current room", async () => {
         const onOpenRoom = vi.fn();
         vm = new KanbanBoardViewModel({ rightPanelStore, client, onOpenRoom });
