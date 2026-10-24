@@ -1533,7 +1533,16 @@ describe("<MatrixChat />", () => {
                 fireEvent.click(screen.getByRole("button", { name: "Home" }));
                 await expect(screen.findByRole("heading", { name: "Welcome Ernie" })).resolves.toBeVisible();
                 expect(defaultProps.onNewScreen).toHaveBeenLastCalledWith("home", false);
-                expect(personal.closest("[role=treeitem]")).toHaveAttribute("aria-selected", "false");
+                // Leaving Personal brings back the chat layout, which mounts the space rail again, so look the button up anew.
+                expect(personal).not.toBeInTheDocument();
+                expect(screen.getByRole("button", { name: "Personal" }).closest("[role=treeitem]")).toHaveAttribute(
+                    "aria-selected",
+                    "false",
+                );
+                expect(screen.getByRole("button", { name: "Home" }).closest("[role=treeitem]")).toHaveAttribute(
+                    "aria-selected",
+                    "true",
+                );
             });
 
             it("keeps the Personal deep link unavailable when beta features are disabled", async () => {
