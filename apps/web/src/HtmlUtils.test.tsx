@@ -336,6 +336,115 @@ describe("bodyToNode", () => {
         },
     );
 
+    describe("custom emoji (MSC2545)", () => {
+        const wave = '<img data-mx-emoticon src="mxc://server/wave" alt=":wave:" title=":wave:" height="32" />';
+        const htmlContent = (formattedBody: string, body = ":wave:") => ({
+            body,
+            msgtype: "m.text",
+            format: "org.matrix.custom.html",
+            formatted_body: formattedBody,
+        });
+
+        let cli: ReturnType<typeof getMockClientWithEventEmitter>;
+        beforeEach(() => {
+            cli = getMockClientWithEventEmitter({
+                mxcUrlToHttp: vi.fn((mxc: string) => mxc.replace("mxc://", "https://media.example/")),
+            });
+        });
+
+        it("should keep the emoticon attribute, use the full file and drop the sender's size and style", () => {
+            const { formattedBody } = bodyToNode(
+                htmlContent(
+                    'hi <img data-mx-emoticon src="mxc://server/wave" alt=":wave:" title=":wave:" width="5000" height="5000" style="width: 5000px" data-mx-color="#ff0000" />',
+                ),
+                [],
+                { linkify: true },
+            );
+
+            expect(formattedBody).toBe(
+                'hi <img data-mx-emoticon="" src="https://media.example/server/wave" alt=":wave:" title=":wave:" style="max-width:3em;max-height:3em">',
+            );
+            // the full file rather than a thumbnail, so animated emoji keep moving
+            // eslint-disable-next-line no-restricted-properties
+            expect(cli.mxcUrlToHttp).toHaveBeenCalledWith(
+                "mxc://server/wave",
+                undefined,
+                undefined,
+                undefined,
+                false,
+                true,
+            );
+        });
+
+        it.each([
+            ["a title", '<img data-mx-emoticon src="mxc://server/wave" title=":wave:" />'],
+            ["an alt", '<img data-mx-emoticon src="mxc://server/wave" alt=":wave:" />'],
+        ])("should name an emoticon sent with only %s in both alt and title", (_, formattedBody) => {
+            const { formattedBody: html } = bodyToNode(htmlContent(formattedBody), []);
+
+            expect(html).toBe(
+                '<img data-mx-emoticon="" src="https://media.example/server/wave" alt=":wave:" title=":wave:" style="max-width:3em;max-height:3em">',
+            );
+        });
+
+        it.each([["javascript:alert(1)"], ["https://evil.example/wave.png"], ["data:image/png;base64,AAAA"]])(
+            "should drop an emoticon whose src is %s",
+            (src) => {
+                const { formattedBody } = bodyToNode(
+                    htmlContent(`hi <img data-mx-emoticon src="${src}" alt=":wave:" />`),
+                    [],
+                );
+
+                expect(formattedBody).toBe("hi <img>");
+            },
+        );
+
+        it.each([
+            ["only custom emoji", `${wave} ${wave}`],
+            ["custom emoji separated by a non-breaking space", `${wave}&nbsp;${wave}`],
+            ["custom and unicode emoji", `${wave} 🥰`],
+            ["custom emoji on several lines", `${wave}<br />${wave}`],
+        ])("should generate big emoji for %s", (_, formattedBody) => {
+            const { className } = bodyToNode(htmlContent(formattedBody), []);
+
+            expect(className).toContain("mx_EventTile_bigEmoji");
+            expect(className).not.toContain("markdown-body");
+        });
+
+        it.each([
+            ["text and custom emoji", `hi ${wave}`],
+            ["custom emoji in other markup", `<p>${wave}</p>`],
+            ["an ordinary image", '<img src="mxc://server/photo" alt="data-mx-emoticon" />'],
+        ])("should not generate big emoji for %s", (_, formattedBody) => {
+            const { className } = bodyToNode(htmlContent(formattedBody), []);
+
+            expect(className).not.toContain("mx_EventTile_bigEmoji");
+            expect(className).toContain("markdown-body");
+        });
+
+        it("should not generate big emoji when big emoji are disabled", () => {
+            const { className } = bodyToNode(htmlContent(wave), [], { disableBigEmoji: true });
+
+            expect(className).not.toContain("mx_EventTile_bigEmoji");
+        });
+
+        it("should generate big emoji for a custom emoji reply with a reply fallback", () => {
+            const { className } = bodyToNode(
+                {
+                    ...htmlContent(
+                        `<mx-reply><blockquote><a href="https://matrix.to/#/!roomId:server/$eventId">In reply to</a> <a href="https://matrix.to/#/@sender1:server">@sender1:server</a><br>Test</blockquote></mx-reply>${wave}`,
+                        "> <@sender1:server> Test\n\n:wave:",
+                    ),
+                    "m.relates_to": { "m.in_reply_to": { event_id: "$eventId" } },
+                },
+                [],
+                { stripReplyFallback: true },
+            );
+
+            expect(className).toContain("mx_EventTile_bigEmoji");
+        });
+    });
+
     afterEach(() => {
         vi.resetAllMocks();
     });

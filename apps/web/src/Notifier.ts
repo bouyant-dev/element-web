@@ -46,6 +46,7 @@ import { localNotificationsAreSilenced, createLocalNotificationSettingsIfNeeded 
 import { getIncomingCallToastKey, getNotificationEventSendTs, IncomingCallToast } from "./toasts/IncomingCallToast";
 import ToastStore from "./stores/ToastStore";
 import { stripPlainReply } from "./utils/Reply";
+import { replaceEmoticonsWithText } from "./utils/matcha/imagePacks";
 import { BackgroundAudio } from "./audio/BackgroundAudio";
 import { type MatrixDispatcher } from "./dispatcher/dispatcher.ts";
 
@@ -128,7 +129,8 @@ function getNotificationBodyWithoutSpoilers(ev: MatrixEvent): string {
         // - The new format where the spoilered text is replaced with [Spoiler]
 
         const parser = new DOMParser();
-        const doc = parser.parseFromString(formattedBody, "text/html");
+        // Custom emoji become their :shortcode: text, so a message of only custom emoji is not blank.
+        const doc = parser.parseFromString(replaceEmoticonsWithText(formattedBody), "text/html");
 
         // Use textContent rather than innerHTML/outerHTML since textContent is
         // XSS-safe and the input is untrusted.

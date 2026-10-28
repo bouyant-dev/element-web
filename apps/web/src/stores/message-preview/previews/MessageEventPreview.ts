@@ -14,6 +14,7 @@ import { _t, sanitizeForTranslation } from "../../../languageHandler";
 import { getSenderName, isSelf, shouldPrefixMessagesIn } from "./utils";
 import { sanitizeHtmlText } from "../../../HtmlUtils";
 import { stripHTMLReply, stripPlainReply } from "../../../utils/Reply";
+import { replaceEmoticonsWithText } from "../../../utils/matcha/imagePacks";
 
 export class MessageEventPreview implements Preview {
     public getTextFor(event: MatrixEvent, tagId?: TagID, isThread?: boolean): string | null {
@@ -48,7 +49,8 @@ export class MessageEventPreview implements Preview {
         }
 
         if (hasHtml) {
-            const sanitised = sanitizeHtmlText(body.replace(/<br\/?>/gi, "\n")); // replace line breaks before removing them
+            // replace line breaks before removing them, and custom emoji with their :shortcode: text
+            const sanitised = sanitizeHtmlText(replaceEmoticonsWithText(body.replace(/<br\/?>/gi, "\n")));
             // run it through DOMParser to fixup encoded html entities
             body = new DOMParser().parseFromString(sanitised, "text/html").documentElement.textContent;
         }

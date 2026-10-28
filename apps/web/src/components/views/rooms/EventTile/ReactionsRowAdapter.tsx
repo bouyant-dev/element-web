@@ -19,7 +19,6 @@ import ContextMenu, { aboveLeftOf } from "../../../structures/ContextMenu";
 import ReactionPicker from "../../emojipicker/ReactionPicker";
 import RoomContext from "../../../../contexts/RoomContext";
 import { useMatrixClientContext } from "../../../../contexts/MatrixClientContext";
-import SettingsStore from "../../../../settings/SettingsStore";
 import { isContentActionable } from "../../../../utils/EventUtils";
 import { type EventTileViewModel } from "../../../../viewmodels/room/timeline/event-tile/EventTileViewModel";
 import { ReactionsRowButtonViewModel } from "../../../../viewmodels/room/timeline/event-tile/reactions/ReactionsRowButtonViewModel";
@@ -221,7 +220,6 @@ export function ReactionsRowAdapter({
     }, [mxEvent, vm]);
 
     const snapshot = useViewModel(vm);
-    const customReactionImagesEnabled = SettingsStore.getValue("feature_render_reaction_images");
     const items = useMemo((): JSX.Element[] | undefined => {
         const mappedItems = reactionGroups.map(({ content, events }) => {
             // Deduplicate reaction events by sender per Matrix spec.
@@ -241,7 +239,9 @@ export function ReactionsRowAdapter({
                     mxEvent={mxEvent}
                     reactionEvents={deduplicatedEvents}
                     myReactionEvent={myReactionEvent}
-                    customReactionImagesEnabled={customReactionImagesEnabled}
+                    // Always on, without the labs flag: Matcha shows received custom emoji to everyone, inline
+                    // and as reactions alike.
+                    customReactionImagesEnabled={true}
                     disabled={
                         !roomContext.canReact ||
                         (myReactionEvent && !myReactionEvent.isRedacted() && !roomContext.canSelfRedact)
@@ -259,7 +259,6 @@ export function ReactionsRowAdapter({
         reactionGroups,
         myReactions,
         mxEvent,
-        customReactionImagesEnabled,
         roomContext.canReact,
         roomContext.canSelfRedact,
         snapshot.showAllButtonVisible,

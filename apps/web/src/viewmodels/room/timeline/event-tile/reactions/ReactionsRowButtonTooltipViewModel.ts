@@ -15,7 +15,7 @@ import {
 import { _t } from "../../../../../languageHandler";
 import { formatList } from "../../../../../utils/FormattingUtils";
 import { unicodeToShortcode } from "../../../../../HtmlUtils";
-import { REACTION_SHORTCODE_KEY } from "./reactionShortcode";
+import { getReactionShortcode } from "./reactionShortcode";
 
 export interface ReactionsRowButtonTooltipViewModelProps {
     /**
@@ -61,16 +61,12 @@ export class ReactionsRowButtonTooltipViewModel
 
         if (room) {
             const senders: string[] = [];
-            let customReactionName: string | undefined;
-
             for (const reactionEvent of reactionEvents) {
                 const member = room.getMember(reactionEvent.getSender()!);
                 const name = member?.name ?? reactionEvent.getSender()!;
                 senders.push(name);
-                customReactionName =
-                    (customReactionImagesEnabled && REACTION_SHORTCODE_KEY.findIn(reactionEvent.getContent())) ||
-                    undefined;
             }
+            const customReactionName = customReactionImagesEnabled ? getReactionShortcode(reactionEvents) : undefined;
 
             const shortName = unicodeToShortcode(content) || customReactionName;
             const formattedSenders = formatList(senders, 6);

@@ -533,6 +533,41 @@ describe("Notifier", () => {
             );
         });
 
+        it.each([
+            [
+                ":wave:",
+                '<img data-mx-emoticon src="mxc://server/wave" alt=":wave:" title=":wave:" height="32" />',
+                ":wave:",
+            ],
+            ["hi :wave:", 'hi <img data-mx-emoticon src="mxc://server/wave" alt=":wave:" />', "hi :wave:"],
+            [
+                ":wave:",
+                '<span data-mx-spoiler><img data-mx-emoticon src="mxc://server/wave" alt=":wave:" /></span>',
+                "[Spoiler]",
+            ],
+        ])("should show custom emoji as their shortcode in notification", (body, formattedBody, expected) => {
+            const emoticonEvent = mkEvent({
+                event: true,
+                type: EventType.RoomMessage,
+                user: mockClient.getSafeUserId(),
+                room: testRoom.roomId,
+                content: {
+                    msgtype: MsgType.Text,
+                    body: body,
+                    format: "org.matrix.custom.html",
+                    formatted_body: formattedBody,
+                },
+            });
+            notifier.displayPopupNotification(emoticonEvent, testRoom);
+            expect(MockPlatform.displayNotification).toHaveBeenCalledWith(
+                "@bob:example.org (!room1:server)",
+                expected,
+                expect.any(String),
+                testRoom,
+                emoticonEvent,
+            );
+        });
+
         describe("knocks", () => {
             let getValueSpy: MockInstance;
 

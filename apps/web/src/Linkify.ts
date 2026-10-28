@@ -33,6 +33,7 @@ import { Action } from "./dispatcher/actions";
 import { type ViewUserPayload } from "./dispatcher/payloads/ViewUserPayload";
 import { type ViewRoomPayload } from "./dispatcher/payloads/ViewRoomPayload";
 import { MatrixClientPeg } from "./MatrixClientPeg";
+import { EMOTICON_ATTRIBUTE } from "./utils/matcha/imagePacks";
 
 const COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
 const MEDIA_API_MXC_REGEX = /\/_matrix\/media\/r0\/(?:download|thumbnail)\/(.+?)\/(.+?)(?:[?/]|$)/;
@@ -77,6 +78,27 @@ export const transformTags = {
 
         if (!src.startsWith("mxc://")) {
             return { tagName, attribs: {} };
+        }
+
+        if (attribs[EMOTICON_ATTRIBUTE] !== undefined) {
+            // MSC2545 custom emoji: the timeline CSS sizes these, so only known attributes are kept (no sender
+            // width, height or style). The style caps their size where that CSS does not apply, such as topics.
+            // ponytail: the full file, as for reaction images, so animated emoji keep moving: a sender can make every
+            // viewer download large originals. Switch to thumbnails with `animated=true` (Matrix 1.11) once the
+            // homeservers we target honour it; a server that ignores it returns a still thumbnail.
+            const emoticonSrc = mediaFromMxc(src).srcHttp;
+            if (!emoticonSrc) return { tagName, attribs: {} };
+            return {
+                tagName,
+                attribs: {
+                    [EMOTICON_ATTRIBUTE]: "",
+                    src: emoticonSrc,
+                    // Either names the emoji; an empty alt would hide it from screen readers and copying.
+                    alt: attribs.alt || attribs.title || "",
+                    title: attribs.title || attribs.alt || "",
+                    style: "max-width: 3em; max-height: 3em;",
+                },
+            };
         }
 
         const requestedWidth = Number(attribs.width);
@@ -148,6 +170,8 @@ export const transformTags = {
 // sanitizer: MXC thumbnail URLs and local permalink handling.
 export const sanitizeHtmlParams: HtmlSanitizeOptions = {
     transformTags,
+    // Marks MSC2545 custom emoji, which the img transform and CSS treat differently from other images.
+    additionalAllowedAttributes: { img: [EMOTICON_ATTRIBUTE] },
 };
 
 /**

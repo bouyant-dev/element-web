@@ -133,6 +133,27 @@ describe("ReactionsRowButtonTooltipViewModel", () => {
         expect(vm.getSnapshot().caption).toContain("custom_emoji");
     });
 
+    it("should ignore shortcodes that are not valid strings and use the first valid one", () => {
+        mockedUnicodeToShortcode.mockReturnValue("");
+        const props = { content: "mxc://custom/emoji", customReactionImagesEnabled: true };
+        const hostile = createReactionEvent("@mallory:example.org", { shortcode: { a: 1 } });
+        const unnamed = createReactionEvent("@bob:example.org");
+        const named = createReactionEvent("@alice:example.org", { shortcode: ":party:" });
+
+        // An object would crash the tooltip when rendered as a React child
+        expect(
+            new ReactionsRowButtonTooltipViewModel(
+                createProps({ ...props, reactionEvents: [hostile, unnamed] }),
+            ).getSnapshot().caption,
+        ).toBeUndefined();
+        // The last reactor giving no shortcode does not take the name away
+        expect(
+            new ReactionsRowButtonTooltipViewModel(
+                createProps({ ...props, reactionEvents: [hostile, named, unnamed] }),
+            ).getSnapshot().caption,
+        ).toContain(":party:");
+    });
+
     it("should not use custom reaction shortcode when customReactionImagesEnabled is false", () => {
         mockedUnicodeToShortcode.mockReturnValue("");
         const reactionEvent = createReactionEvent("@alice:example.org", {

@@ -130,5 +130,41 @@ describe("ReactionEventPreview", () => {
 
             expect(preview.getTextFor(event)).toMatchInlineSnapshot(`"Bob reacted 🪿 to duck duck goose"`);
         });
+
+        it.each([
+            [{ shortcode: ":party:" }, "You reacted :party: to duck duck goose"],
+            [{ shortcode: 42 }, "You reacted Custom reaction to duck duck goose"],
+            [{ shortcode: ":bidi\u202Eoverride:" }, "You reacted Custom reaction to duck duck goose"],
+            [{}, "You reacted Custom reaction to duck duck goose"],
+        ])("should name custom emoji reactions instead of showing their URL (%j)", (extra, expected) => {
+            const cli = MatrixClientPeg.safeGet();
+            const room = new Room(roomId, cli, userId);
+            vi.mocked(cli.getRoom).mockReturnValue(room);
+
+            const message = mkEvent({
+                event: true,
+                content: { body: "duck duck goose", msgtype: "m.text" },
+                user: userId,
+                type: "m.room.message",
+                room: roomId,
+            });
+            room.getUnfilteredTimelineSet().addLiveEvent(message, { addToState: true });
+
+            const event = mkEvent({
+                event: true,
+                content: {
+                    "m.relates_to": {
+                        rel_type: RelationType.Annotation,
+                        key: "mxc://example.com/party",
+                        event_id: message.getId(),
+                    },
+                    ...extra,
+                },
+                user: cli.getSafeUserId(),
+                type: "m.reaction",
+                room: roomId,
+            });
+            expect(preview.getTextFor(event)).toBe(expected);
+        });
     });
 });

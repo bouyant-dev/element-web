@@ -324,6 +324,21 @@ $left-gutter: 64px;
         background-color: inherit !important;
     }
 
+    /* MSC2545 custom emoji: one line tall like Discord's, with wide ones scaled down to fit.
+       Comes after the markdown-body rule above, which has the same specificity. */
+    img[data-mx-emoticon] {
+        height: 1.375em; /* the 22px line height of 16px body text */
+        width: auto;
+        max-width: 3em;
+        object-fit: contain;
+        object-position: center;
+        vertical-align: bottom; /* as .mx_Emoji, so the line does not grow */
+    }
+
+    &.mx_EventTile_bigEmoji img[data-mx-emoticon] {
+        height: 48px; /* the font size of big unicode emoji */
+    }
+
     .mx_EventTile_pre_container {
         /* For correct positioning of _copyButton (See TextualBody) */
         position: relative;

@@ -17,7 +17,7 @@ import { _t } from "../../../../../languageHandler";
 import { formatList } from "../../../../../utils/FormattingUtils";
 import dis from "../../../../../dispatcher/dispatcher";
 import { ReactionsRowButtonTooltipViewModel } from "./ReactionsRowButtonTooltipViewModel";
-import { REACTION_SHORTCODE_KEY } from "./reactionShortcode";
+import { getReactionShortcode, reactionShortcodeContent } from "./reactionShortcode";
 
 export interface ReactionsRowButtonViewModelProps {
     /**
@@ -84,23 +84,24 @@ export class ReactionsRowButtonViewModel
 
         const room = client.getRoom(mxEvent.getRoomId());
         let ariaLabel: string | undefined;
-        let customReactionName: string | undefined;
+        const customReactionName = customReactionImagesEnabled ? getReactionShortcode(reactionEvents) : undefined;
+        const isCustomReaction = content.startsWith("mxc://");
 
         if (room) {
             const senders: string[] = [];
             for (const reactionEvent of reactionEvents) {
                 const member = room.getMember(reactionEvent.getSender()!);
                 senders.push(member?.name || reactionEvent.getSender()!);
-                customReactionName =
-                    (customReactionImagesEnabled && REACTION_SHORTCODE_KEY.findIn(reactionEvent.getContent())) ||
-                    undefined;
             }
 
             const reactors = formatList(senders, 6);
             if (content) {
                 ariaLabel = _t("timeline|reactions|label", {
                     reactors,
-                    content: customReactionName || content,
+                    // An image reaction's key is its URL, which means nothing read out
+                    content:
+                        customReactionName ||
+                        (isCustomReaction ? _t("timeline|reactions|custom_reaction_fallback_label") : content),
                 });
             } else {
                 ariaLabel = reactors;
@@ -109,7 +110,7 @@ export class ReactionsRowButtonViewModel
 
         let imageSrc: string | undefined;
         let imageAlt: string | undefined;
-        if (customReactionImagesEnabled && content.startsWith("mxc://")) {
+        if (customReactionImagesEnabled && isCustomReaction) {
             const resolved = mediaFromMxc(content).srcHttp;
             if (resolved) {
                 imageSrc = resolved;
@@ -191,7 +192,7 @@ export class ReactionsRowButtonViewModel
     }
 
     public onClick = (): void => {
-        const { client, mxEvent, myReactionEvent, content, disabled } = this.props;
+        const { client, mxEvent, myReactionEvent, content, disabled, reactionEvents } = this.props;
         if (disabled) return;
 
         if (myReactionEvent) {
@@ -199,12 +200,15 @@ export class ReactionsRowButtonViewModel
             return;
         }
 
+        // Joining a custom emoji reaction keeps the name another reactor gave it.
+        const shortcode = content.startsWith("mxc://") ? getReactionShortcode(reactionEvents) : undefined;
         void client.sendEvent(mxEvent.getRoomId()!, EventType.Reaction, {
             "m.relates_to": {
                 rel_type: RelationType.Annotation,
                 event_id: mxEvent.getId()!,
                 key: content,
             },
+            ...(shortcode && reactionShortcodeContent(shortcode)),
         });
         dis.dispatch({ action: "message_sent" });
     };

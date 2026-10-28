@@ -13,6 +13,7 @@ import { type TagID } from "../../room-list-v3/skip-list/tag";
 import { getSenderName, isSelf } from "./utils";
 import { _t } from "../../../languageHandler";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
+import { getReactionShortcode } from "../../../viewmodels/room/timeline/event-tile/reactions/reactionShortcode";
 import type { MessagePreviewStore } from "../MessagePreviewStore";
 
 export class ReactionEventPreview implements Preview {
@@ -25,8 +26,12 @@ export class ReactionEventPreview implements Preview {
         const relation = event.getRelation();
         if (!relation) return null; // invalid reaction (probably redacted)
 
-        const reaction = relation.key;
+        let reaction = relation.key;
         if (!reaction) return null; // invalid reaction (unknown format)
+        if (reaction.startsWith("mxc://")) {
+            // A custom emoji: show its name rather than the image URL.
+            reaction = getReactionShortcode([event]) ?? _t("timeline|reactions|custom_reaction_fallback_label");
+        }
 
         const cli = MatrixClientPeg.get();
         const room = cli?.getRoom(roomId);

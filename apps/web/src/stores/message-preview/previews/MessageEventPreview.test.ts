@@ -75,5 +75,23 @@ describe("MessageEventPreview", () => {
             });
             expect(preview.getTextFor(event)).toBe(`${userId}: test new content body`);
         });
+
+        it.each([
+            ["hi :wave:", 'hi <img data-mx-emoticon src="mxc://server/wave" alt=":wave:" title=":wave:" />'],
+            [":wave:", '<img data-mx-emoticon src="mxc://server/wave" alt=":wave:" title=":wave:" height="32" />'],
+            [":wave:", '<img data-mx-emoticon src="mxc://server/wave" title=":wave:" />'],
+        ])("should show custom emoji as their shortcode, »%s«", (expected, formattedBody) => {
+            const event = mkEvent({
+                event: true,
+                content: {
+                    body: ":wave:",
+                    format: "org.matrix.custom.html",
+                    formatted_body: formattedBody,
+                },
+                user: userId,
+                type: "m.room.message",
+            });
+            expect(preview.getTextFor(event)).toBe(`${userId}: ${expected}`);
+        });
     });
 });

@@ -123,6 +123,26 @@ describe("ReactionsRowButtonViewModel", () => {
         expect(getAriaLabel(vm)).toContain("reacted with party");
     });
 
+    it("names custom reactions by the first valid shortcode, and never by their URL", () => {
+        const named = createReactionEvent("@alice:example.org", "mxc://example.org/reaction");
+        named.getContent()["shortcode"] = ":party:";
+        const unnamed = createReactionEvent("@bob:example.org", "mxc://example.org/reaction");
+        const hostile = createReactionEvent("@mallory:example.org", "mxc://example.org/reaction");
+        hostile.getContent()["shortcode"] = { a: 1 };
+        const props = { content: "mxc://example.org/reaction", customReactionImagesEnabled: true };
+
+        const vm = new ReactionsRowButtonViewModel(createProps({ ...props, reactionEvents: [named, unnamed] }));
+        expect(vm.getSnapshot().imageAlt).toBe(":party:");
+        expect(getAriaLabel(vm)).toContain("reacted with :party:");
+
+        const anonymous = new ReactionsRowButtonViewModel(
+            createProps({ ...props, reactionEvents: [hostile, unnamed] }),
+        );
+        expect(anonymous.getSnapshot().imageAlt).toBe("Custom reaction");
+        expect(getAriaLabel(anonymous)).toContain("reacted with Custom reaction");
+        expect(getAriaLabel(anonymous)).not.toContain("mxc://");
+    });
+
     it("updates selected state with myReactionEvent without touching tooltip props", () => {
         const vm = new ReactionsRowButtonViewModel(createProps());
         const tooltipSetPropsSpy = vi.spyOn(getTooltipVm(vm), "setProps");
@@ -189,6 +209,47 @@ describe("ReactionsRowButtonViewModel", () => {
             },
         });
         expect(dis.dispatch).toHaveBeenCalledWith({ action: "message_sent" });
+    });
+
+    it("copies the shortcode of an existing custom emoji reaction when joining it", () => {
+        const withoutShortcode = createReactionEvent("@alice:example.org", "mxc://example.org/party");
+        const badShortcodes = ["has spaces", "bidi\u202Eoverride", `:${"猫".repeat(33)}:`, { a: 1 }].map((value, i) => {
+            const event = createReactionEvent(`@bad${i}:example.org`, "mxc://example.org/party");
+            event.getContent()["shortcode"] = value;
+            return event;
+        });
+        const withShortcode = createReactionEvent("@carol:example.org", "mxc://example.org/party");
+        withShortcode.getContent()["shortcode"] = ":party:";
+        const vm = new ReactionsRowButtonViewModel(
+            createProps({
+                content: "mxc://example.org/party",
+                reactionEvents: [withoutShortcode, ...badShortcodes, withShortcode],
+            }),
+        );
+
+        vm.onClick();
+
+        expect(client.sendEvent).toHaveBeenCalledWith(room.roomId, EventType.Reaction, {
+            "m.relates_to": {
+                rel_type: RelationType.Annotation,
+                event_id: mxEvent.getId(),
+                key: "mxc://example.org/party",
+            },
+            "com.beeper.reaction.shortcode": ":party:",
+            "shortcode": ":party:",
+        });
+    });
+
+    it("does not copy shortcodes onto unicode reactions", () => {
+        const reactionEvent = createReactionEvent("@alice:example.org");
+        reactionEvent.getContent()["shortcode"] = ":thumbsup:";
+        const vm = new ReactionsRowButtonViewModel(createProps({ reactionEvents: [reactionEvent] }));
+
+        vm.onClick();
+
+        expect(client.sendEvent).toHaveBeenCalledWith(room.roomId, EventType.Reaction, {
+            "m.relates_to": { rel_type: RelationType.Annotation, event_id: mxEvent.getId(), key: "👍" },
+        });
     });
 
     it("does nothing on click when disabled", () => {

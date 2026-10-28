@@ -23,6 +23,7 @@ import SettingsStore from "./settings/SettingsStore";
 import { stripHTMLReply, stripPlainReply } from "./utils/Reply";
 import { sanitizeHtmlParams, transformTags, linkifyHtml } from "./Linkify";
 import { graphemeSegmenter } from "./utils/strings";
+import { EMOTICON_ATTRIBUTE } from "./utils/matcha/imagePacks";
 
 export { linkifyAndSanitizeHtml } from "./Linkify";
 export { isUrlPermitted, sanitizeHtmlText } from "@element-hq/element-web-shared-utils";
@@ -74,6 +75,22 @@ const BIGEMOJI_REGEX = (() => {
  */
 function mightContainEmoji(str?: string): boolean {
     return !!str && (SURROGATE_PAIR_PATTERN.test(str) || SYMBOL_PATTERN.test(str));
+}
+
+/*
+ * Removes MSC2545 custom emoji images from sanitised HTML so the big-emoji check can count them as emoji.
+ * Returns null when there are none. Line breaks go too, as newlines do from plain bodies. Any other markup is
+ * kept so that check still rejects it; plain text is returned decoded so that entities such as &nbsp; count
+ * as spaces.
+ */
+function withoutEmoticons(html: string): string | null {
+    if (!html.includes(EMOTICON_ATTRIBUTE)) return null;
+    const body = new DOMParser().parseFromString(html, "text/html").body;
+    const emoticons = body.querySelectorAll(`img[${EMOTICON_ATTRIBUTE}]`);
+    if (!emoticons.length) return null;
+    emoticons.forEach((emoticon) => emoticon.remove());
+    body.querySelectorAll("br").forEach((br) => br.remove());
+    return body.children.length ? body.innerHTML : (body.textContent ?? "");
 }
 
 /**
@@ -343,7 +360,9 @@ function analyseEvent(content: IContent, highlights?: string[], opts: EventRende
 
         if (opts.stripReplyFallback && formattedBody) formattedBody = stripHTMLReply(formattedBody);
         const strippedBody = opts.stripReplyFallback ? stripPlainReply(plainBody) : plainBody;
-        bodyHasEmoji = mightContainEmoji(isFormattedBody ? formattedBody! : plainBody);
+        bodyHasEmoji =
+            mightContainEmoji(isFormattedBody ? formattedBody! : plainBody) ||
+            (isFormattedBody && formattedBody!.includes(EMOTICON_ATTRIBUTE));
 
         const highlighter = safeHighlights?.length
             ? new HtmlHighlighter("mx_EventTile_searchHighlight", opts.highlightLink)
@@ -408,7 +427,8 @@ export function bodyToNode(content: IContent, highlights?: string[], opts: Event
 
     let emojiBody = false;
     if (!opts.disableBigEmoji && eventInfo.bodyHasEmoji) {
-        const contentBody = eventInfo.safeBody ?? eventInfo.strippedBody;
+        const emoticonFreeBody = eventInfo.safeBody === undefined ? null : withoutEmoticons(eventInfo.safeBody);
+        const contentBody = emoticonFreeBody ?? eventInfo.safeBody ?? eventInfo.strippedBody;
         let contentBodyTrimmed = contentBody !== undefined ? contentBody.trim() : "";
 
         // Remove zero width joiner, zero width spaces and other spaces in body
@@ -419,11 +439,13 @@ export function bodyToNode(content: IContent, highlights?: string[], opts: Event
 
         const match = BIGEMOJI_REGEX.exec(contentBodyTrimmed);
         emojiBody =
-            match?.[0]?.length === contentBodyTrimmed.length &&
+            // a message of only custom emoji leaves nothing behind
+            (match?.[0]?.length === contentBodyTrimmed.length || (emoticonFreeBody !== null && !contentBodyTrimmed)) &&
             // Prevent user pills expanding for users with only emoji in
             // their username. Permalinks (links in pills) can be any URL
             // now, so we just check for an HTTP-looking thing.
             (eventInfo.strippedBody === eventInfo.safeBody || // replies have the html fallbacks, account for that here
+                emoticonFreeBody !== null || // custom emoji were checked on the sanitised body, so it holds no links
                 content.formatted_body === undefined ||
                 (!content.formatted_body.includes("http:") && !content.formatted_body.includes("https:")));
     }
