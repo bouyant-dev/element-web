@@ -1710,6 +1710,23 @@
         "send_error": "Your changes have not been saved. They are kept in this tab; retry or download the Markdown before closing.",
         "too_large_error": "This document update is too large to send. Download the Markdown to keep your changes."
     },
+    "matcha_emoji": {
+        "dialog_title": "<strong>Settings:</strong> Emoji",
+        "error_dimensions": "%(name)s is larger than 1024 × 1024 pixels.",
+        "error_pack_full": "This pack is full. Remove some emoji before adding more.",
+        "error_save": "The emoji could not be saved. Check your connection and permissions, then try again.",
+        "error_shortcode_invalid": "Emoji names must be 2 to 32 letters, numbers, hyphens or underscores.",
+        "error_shortcode_taken": "An emoji named :%(code)s: already exists in this pack.",
+        "error_size": "%(name)s is larger than 512 KB.",
+        "error_type": "%(name)s isn't a PNG, GIF, WebP or JPEG image.",
+        "error_upload": "%(name)s could not be uploaded. Check your connection and try again.",
+        "permission_label": "Manage emoji",
+        "personal_pack_name": "Your emoji",
+        "room_description": "Upload custom emoji for everyone in this room. Emoji images aren't end-to-end encrypted, even in encrypted rooms.",
+        "space_description": "Upload custom emoji for everyone in this space. They work in every room of the space. Emoji images aren't end-to-end encrypted, even in encrypted rooms.",
+        "title": "Emoji",
+        "user_description": "Your emoji work in every room and are only managed by you. Emoji images aren't end-to-end encrypted, even in encrypted rooms."
+    },
     "matcha_kanban": {
         "archive": "Archive card",
         "archive_hint": "The card will leave the active board for everyone. You can restore it from Archived cards.",

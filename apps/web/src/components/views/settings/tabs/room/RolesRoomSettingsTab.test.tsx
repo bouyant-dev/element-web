@@ -27,6 +27,7 @@ import RolesRoomSettingsTab from "./RolesRoomSettingsTab";
 import { MatrixClientPeg } from "../../../../../MatrixClientPeg";
 import SdkConfig from "../../../../../SdkConfig";
 import { ElementCallEventType, ElementCallMemberEventType } from "../../../../../call-types";
+import { ROOM_EMOTES_EVENT } from "../../../../../utils/matcha/imagePacks";
 
 describe("RolesRoomSettingsTab", () => {
     const userId = "@alice:server.org";
@@ -274,6 +275,31 @@ describe("RolesRoomSettingsTab", () => {
                 }),
             }),
         );
+    });
+
+    describe("custom emoji", () => {
+        afterEach(() => {
+            SdkConfig.reset();
+        });
+
+        it("lets admins choose who may manage emoji only when Matcha features are on", async () => {
+            vi.mocked(cli.sendStateEvent).mockResolvedValue({ event_id: "$eventId" });
+            vi.mocked(cli.getRoom).mockReturnValue(room);
+            vi.mocked(room.currentState.mayClientSendStateEvent).mockReturnValue(true);
+            const { container, unmount } = await renderTab();
+            expect(container.querySelector(`[placeholder="Manage emoji"]`)).toBeNull();
+            unmount();
+
+            SdkConfig.add({ matcha_thread_tabs: true });
+            const tab = await renderTab();
+            fireEvent.change(tab.container.querySelector(`[placeholder="Manage emoji"]`)!, { target: { value: "0" } });
+
+            expect(cli.sendStateEvent).toHaveBeenCalledWith(
+                room.roomId,
+                "m.room.power_levels",
+                expect.objectContaining({ events: expect.objectContaining({ [ROOM_EMOTES_EVENT]: 0 }) }),
+            );
+        });
     });
 
     it("should not modify the power levels event when rendering or changing a power level", async () => {

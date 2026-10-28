@@ -1,0 +1,76 @@
+/*
+Copyright 2026 David
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.view {
+    color: var(--cpd-color-text-primary);
+}
+
+.secondary {
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+}
+
+.error {
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
+    color: var(--cpd-color-text-critical-primary);
+    background: var(--cpd-color-bg-critical-subtle);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-critical-subtle);
+}
+
+.error p {
+    margin: 0;
+}
+
+.list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.row {
+    padding: var(--cpd-space-2x) 0;
+    border-bottom: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}
+
+.image {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    /* Keep non-square emoji whole rather than cropped */
+    object-fit: contain;
+}
+
+.name,
+.readOnlyName {
+    flex: 1;
+    min-width: 0;
+}
+
+.name {
+    box-sizing: border-box;
+    padding: var(--cpd-space-1x) var(--cpd-space-2x);
+    font: var(--cpd-font-body-md-regular);
+    color: var(--cpd-color-text-primary);
+    background: transparent;
+    border: var(--cpd-border-width-1) solid transparent;
+    border-radius: var(--cpd-space-2x);
+}
+
+.name:hover {
+    border-color: var(--cpd-color-border-interactive-secondary);
+}
+
+.name:focus-visible {
+    outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+    outline-offset: -1px;
+}
+
+.readOnlyName {
+    padding: 0 var(--cpd-space-2x);
+    overflow-wrap: anywhere;
+}

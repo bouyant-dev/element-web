@@ -154,6 +154,19 @@
             "other": "%(count)s words"
         }
     },
+    "matcha_emoji": {
+        "busy": "Saving emoji…",
+        "emoji_count": {
+            "one": "%(count)s emoji",
+            "other": "%(count)s emoji"
+        },
+        "empty": "No custom emoji yet.",
+        "name_label": "Name for %(code)s",
+        "read_only": "You don't have permission to change these emoji.",
+        "remove": "Remove %(code)s",
+        "upload": "Upload emoji",
+        "upload_hint": "PNG, GIF, WebP or JPEG, up to 512 KB. Use emoji in messages by typing :name:"
+    },
     "matcha_kanban": {
         "active": "Active cards",
         "add": "Add card",

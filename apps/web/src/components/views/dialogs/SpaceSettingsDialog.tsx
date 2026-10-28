@@ -11,6 +11,7 @@ import { type Room, type MatrixClient } from "matrix-js-sdk/src/matrix";
 import {
     AdminIcon,
     AdvancedSettingsIcon,
+    ReactionIcon,
     SettingsSolidIcon,
     VisibilityOnIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
@@ -28,11 +29,14 @@ import AdvancedRoomSettingsTab from "../settings/tabs/room/AdvancedRoomSettingsT
 import RolesRoomSettingsTab from "../settings/tabs/room/RolesRoomSettingsTab";
 import { Action } from "../../../dispatcher/actions";
 import { type NonEmptyArray } from "../../../@types/common";
+import SdkConfig from "../../../SdkConfig";
+import { EmojiRoomSettingsTab } from "../settings/tabs/room/EmojiRoomSettingsTab";
 
 export enum SpaceSettingsTab {
     General = "SPACE_GENERAL_TAB",
     Visibility = "SPACE_VISIBILITY_TAB",
     Roles = "SPACE_ROLES_TAB",
+    Emoji = "SPACE_EMOJI_TAB",
     Advanced = "SPACE_ADVANCED_TAB",
 }
 
@@ -74,6 +78,14 @@ const SpaceSettingsDialog: React.FC<IProps> = ({ matrixClient: cli, space, onFin
                 <AdminIcon key={SpaceSettingsTab.Roles} />,
                 <RolesRoomSettingsTab key={SpaceSettingsTab.Roles} room={space} />,
             ),
+            SdkConfig.get("matcha_thread_tabs")
+                ? new Tab(
+                      SpaceSettingsTab.Emoji,
+                      _td("matcha_emoji|title"),
+                      <ReactionIcon key={SpaceSettingsTab.Emoji} />,
+                      <EmojiRoomSettingsTab key={SpaceSettingsTab.Emoji} room={space} />,
+                  )
+                : null,
             SettingsStore.getValue(UIFeature.AdvancedSettings)
                 ? new Tab(
                       SpaceSettingsTab.Advanced,

@@ -26,6 +26,7 @@ import MatrixClientContext from "../../../../../contexts/MatrixClientContext";
 import { PowerLevelSelector } from "../../PowerLevelSelector";
 import { ElementCallEventType, ElementCallMemberEventType } from "../../../../../call-types";
 import { objectClone } from "../../../../../utils/objects.ts";
+import { ROOM_EMOTES_EVENT } from "../../../../../utils/matcha/imagePacks";
 
 interface IEventShowOpts {
     isState?: boolean;
@@ -191,6 +192,10 @@ export default class RolesRoomSettingsTab extends React.Component<IProps, RolesR
                 eventLevels[desiredEvent] = plEventsToShow[desiredEvent].isState ? stateLevel : eventsLevel;
             }
         }
+        // Matcha: who may change the custom emoji pack, a state event shown in rooms and Spaces.
+        if (SdkConfig.get("matcha_thread_tabs") && !(ROOM_EMOTES_EVENT in eventLevels)) {
+            eventLevels[ROOM_EMOTES_EVENT] = stateLevel;
+        }
         return eventLevels;
     }
 
@@ -280,6 +285,7 @@ export default class RolesRoomSettingsTab extends React.Component<IProps, RolesR
             [EventType.RoomPinnedEvents]: _td("room_settings|permissions|m.room.pinned_events"),
             // TODO: Enable support for m.widget event type (https://github.com/vector-im/element-web/issues/13111)
             "im.vector.modular.widgets": isSpaceRoom ? null : _td("room_settings|permissions|m.widget"),
+            [ROOM_EMOTES_EVENT]: _td("matcha_emoji|permission_label"),
         };
         // MSC3401: Native Group VoIP signaling
         if (!SdkConfig.get("element_call").disable) {

@@ -13,6 +13,7 @@ export enum UserTab {
     Preferences = "USER_PREFERENCES_TAB",
     Keyboard = "USER_KEYBOARD_TAB",
     Sidebar = "USER_SIDEBAR_TAB",
+    Emoji = "USER_EMOJI_TAB",
     Voice = "USER_VOICE_TAB",
     Security = "USER_SECURITY_TAB",
     Encryption = "USER_ENCRYPTION_TAB",

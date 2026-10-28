@@ -8,7 +8,7 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "test-utils-rtl";
 import {
@@ -27,6 +27,7 @@ import MatrixClientContext from "../../../contexts/MatrixClientContext";
 import SettingsStore from "../../../settings/SettingsStore";
 import { UIFeature } from "../../../settings/UIFeature";
 import DMRoomMap from "../../../utils/DMRoomMap";
+import SdkConfig from "../../../SdkConfig";
 
 describe("<RoomSettingsDialog />", () => {
     const userId = "@alice:server.org";
@@ -153,6 +154,24 @@ describe("<RoomSettingsDialog />", () => {
             );
             getComponent();
             expect(screen.getByTestId("settings-tab-ROOM_BRIDGES_TAB")).toBeInTheDocument();
+        });
+
+        describe("emoji settings tab", () => {
+            afterEach(() => {
+                SdkConfig.reset();
+            });
+
+            it("does not render without Matcha features", () => {
+                getComponent();
+                expect(screen.queryByTestId("settings-tab-ROOM_EMOJI_TAB")).not.toBeInTheDocument();
+            });
+
+            it("renders the room's emoji pack when Matcha features are on", () => {
+                SdkConfig.add({ matcha_thread_tabs: true });
+                getComponent();
+                fireEvent.click(screen.getByTestId("settings-tab-ROOM_EMOJI_TAB"));
+                expect(screen.getByText(/Upload custom emoji for everyone in this room/)).toBeInTheDocument();
+            });
         });
 
         it("renders advanced settings tab when enabled", () => {

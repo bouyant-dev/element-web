@@ -132,6 +132,17 @@ describe("<UserSettingsDialog />", () => {
         expect(getByTestId(`settings-tab-${UserTab.Voice}`)).toBeTruthy();
     });
 
+    it("renders the emoji tab only when Matcha features are on", () => {
+        const { queryByTestId, unmount } = render(getComponent());
+        expect(queryByTestId(`settings-tab-${UserTab.Emoji}`)).toBeNull();
+        unmount();
+
+        SdkConfig.add({ matcha_thread_tabs: true });
+        render(getComponent({ initialTabId: UserTab.Emoji }));
+        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Emoji");
+        expect(screen.getByText(/Your emoji work in every room.*aren't end-to-end encrypted/)).toBeInTheDocument();
+    });
+
     it("renders with session manager tab selected", () => {
         const { getByTestId } = render(getComponent({ initialTabId: UserTab.SessionManager }));
         expect(getByTestId(`settings-tab-${UserTab.SessionManager}`)).toBeTruthy();

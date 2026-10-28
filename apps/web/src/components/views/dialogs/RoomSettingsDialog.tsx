@@ -20,6 +20,7 @@ import {
     NotificationsIcon,
     AdvancedSettingsIcon,
     TreeIcon,
+    ReactionIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
 
 import TabbedView, { Tab } from "../../structures/TabbedView";
@@ -46,6 +47,7 @@ import { SDKContext } from "../../../contexts/SDKContext";
 import { type SDKContextClass } from "../../../contexts/SDKContextClass";
 import { RoomSettingsTab } from "./RoomSettingsDialog-tab.ts";
 import SdkConfig from "../../../SdkConfig";
+import { EmojiRoomSettingsTab } from "../settings/tabs/room/EmojiRoomSettingsTab";
 
 interface IProps {
     roomId: string;
@@ -176,6 +178,17 @@ class RoomSettingsDialog extends React.Component<IProps, IState> {
                 "RoomSettingsRolesPermissions",
             ),
         );
+        if (SdkConfig.get("matcha_thread_tabs")) {
+            tabs.push(
+                new Tab(
+                    RoomSettingsTab.Emoji,
+                    _td("matcha_emoji|title"),
+                    <ReactionIcon />,
+                    // Keyed by room, so switching rooms gives the tab a view model for the new room.
+                    <EmojiRoomSettingsTab key={this.state.room.roomId} room={this.state.room} />,
+                ),
+            );
+        }
         tabs.push(
             new Tab(
                 RoomSettingsTab.Notifications,

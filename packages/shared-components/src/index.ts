@@ -14,6 +14,7 @@ export * from "./audio/SeekBar";
 export * from "./core/AvatarWithDetails";
 export * from "./core/MemberAvatar/MemberAvatarView.tsx";
 export * from "./core/EmojiPicker";
+export * from "./emoji/EmojiPackSettingsView";
 export * from "./core/FacePile/FacePileView.tsx";
 export * from "./core/roving";
 export * from "./room/composer/Banner";

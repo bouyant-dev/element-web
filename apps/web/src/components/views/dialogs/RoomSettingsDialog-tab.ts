@@ -14,6 +14,7 @@ export const enum RoomSettingsTab {
     Voip = "ROOM_VOIP_TAB",
     Security = "ROOM_SECURITY_TAB",
     Roles = "ROOM_ROLES_TAB",
+    Emoji = "ROOM_EMOJI_TAB",
     Notifications = "ROOM_NOTIFICATIONS_TAB",
     Bridges = "ROOM_BRIDGES_TAB",
     Advanced = "ROOM_ADVANCED_TAB",
