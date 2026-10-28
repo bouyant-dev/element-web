@@ -725,11 +725,11 @@
         "failed_copy": "Mistókst að afrita",
         "hs_blocked": "Þessi heimaþjónn hefur verið útilokaður af kerfisstjóra hans.",
         "invalid_configuration_no_server": "Ógild uppsetning: enginn sjálfgefinn vefþjónn tilgreindur.",
-        "invalid_json": "Element-stillingar þínar innihalda ógilt JSON. Leiðréttu vandamálið og endurlestu síðuna.",
+        "invalid_json": "POND-stillingar þínar innihalda ógilt JSON. Leiðréttu vandamálið og endurlestu síðuna.",
         "invalid_json_detail": "Skilaboðið frá þáttaranum er %(message)s",
         "invalid_json_generic": "Ógilt JSON",
         "mau": "Þessi heimaþjónn er kominn fram yfir takmörk á mánaðarlega virkum notendum.",
-        "misconfigured": "Element-tilvikið þitt er rangt stillt",
+        "misconfigured": "POND-tilvikið þitt er rangt stillt",
         "non_urgent_echo_failure_toast": "Netþjónninn þinn er ekki að svara sumum <a>beiðnum</a>.",
         "resource_limits": "Þessi heimaþjónn er kominn fram yfir takmörk á tilföngum sínum.",
         "session_restore": {

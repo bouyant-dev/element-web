@@ -6,6 +6,8 @@ Please see LICENSE files in the repository root for full details.
 */
 
 .mx_DefaultWelcome {
+    /* Leave room for the welcome padding and Glass frame on narrow screens. */
+    width: min(380px, calc(100vw - 2 * (var(--cpd-space-12x) + var(--cpd-space-3x))));
     text-align: center;
 
     .mx_DefaultWelcome_logo img {
@@ -30,7 +32,7 @@ Please see LICENSE files in the repository root for full details.
         border-bottom: 1px solid var(--cpd-color-separator-primary);
 
         a {
-            width: 380px;
+            width: 100%;
             margin-bottom: var(--cpd-space-4x);
         }
     }

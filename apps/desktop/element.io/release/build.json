@@ -1,7 +1,7 @@
 {
     "appId": "im.riot.app",
     "name": "element-desktop",
-    "productName": "Element",
-    "description": "Element: the future of secure communication",
+    "productName": "POND",
+    "description": "POND: secure team communication",
     "protocols": ["io.element.desktop", "element"]
 }

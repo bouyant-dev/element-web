@@ -14,6 +14,8 @@ import { getConfig } from "./config.js";
 const isMac = process.platform === "darwin";
 
 export function buildMenuTemplate(): Menu {
+    const brand = getConfig().brand;
+    app.setAboutPanelOptions({ applicationName: brand });
     // Menu template from http://electron.atom.io/docs/api/menu/, edited
     const template: Array<MenuItemConstructorOptions | MenuItem> = [
         {
@@ -144,11 +146,11 @@ export function buildMenuTemplate(): Menu {
         template.unshift({
             // first macOS menu is the name of the app
             role: "appMenu",
-            label: app.name,
+            label: brand,
             submenu: [
                 {
                     role: "about",
-                    label: _t("common|about") + " " + app.name,
+                    label: _t("common|about") + " " + brand,
                 },
                 { type: "separator" },
                 {

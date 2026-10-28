@@ -112,6 +112,7 @@ const config: Omit<Writable<Configuration>, "electronFuses"> & {
     electronFuses: Required<Configuration["electronFuses"]>;
 } = {
     appId: variant.appId,
+    productName: variant.productName,
     asarUnpack: "**/*.node",
     electronFuses: {
         enableCookieEncryption: true,
@@ -131,7 +132,8 @@ const config: Omit<Writable<Configuration>, "electronFuses"> & {
     extraResources: ["build/icon.*", "webapp.asar"],
     extraMetadata: {
         name: variant.name,
-        productName: variant.productName,
+        // Preserve Electron's profile directory and OS encryption-key identity across the visible rename.
+        productName: variant.productName.replace(/^POND(?=$| )/, "Element"),
         description: variant.description,
         // Read by Electron to set the Wayland app_id / X11 WM_CLASS, so compositors
         // can associate our windows with the desktop file of the same name.

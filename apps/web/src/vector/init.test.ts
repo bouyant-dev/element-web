@@ -31,7 +31,7 @@ describe("showIncompatibleBrowser", () => {
 
     it("should match snapshot", async () => {
         await showIncompatibleBrowser(vi.fn());
-        await screen.findByText("Element does not support this browser");
+        await screen.findByText("POND does not support this browser");
         expect(document.getElementById("matrixchat")).toMatchSnapshot();
     });
 });

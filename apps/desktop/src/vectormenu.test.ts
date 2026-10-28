@@ -6,14 +6,15 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import { expect, describe, it, vi, beforeEach } from "vitest";
-import { type Menu, type MenuItemConstructorOptions, shell } from "electron";
+import { type Menu, type MenuItemConstructorOptions, app, shell } from "electron";
 
 import { type buildMenuTemplate as _buildMenuTemplate } from "./vectormenu.js";
 import { type ConfigOptions } from "./config.js";
 
 vi.mock("electron", () => ({
     app: {
-        name: "ChatApp",
+        name: "Element",
+        setAboutPanelOptions: vi.fn(),
     },
     shell: {
         openExternal: vi.fn(),
@@ -42,9 +43,12 @@ describe("buildMenuTemplate", () => {
             ({ buildMenuTemplate } = await import("./vectormenu.js"));
         });
 
-        it.runIf(platform === "darwin")("should have an app-named item first", () => {
+        it.runIf(platform === "darwin")("should use the visible brand rather than the internal storage name", () => {
             const menu = buildMenuTemplate();
-            expect(menu.items[0].label).toBe("ChatApp");
+            expect(menu.items[0].label).toBe("IAMBRAND");
+            const submenu = menu.items[0].submenu as unknown as MenuItemConstructorOptions[];
+            expect(submenu[0].label).toBe("common|about IAMBRAND");
+            expect(app.setAboutPanelOptions).toHaveBeenCalledWith({ applicationName: "IAMBRAND" });
         });
 
         it("should include expected `help` menu", () => {

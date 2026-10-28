@@ -27,6 +27,12 @@ describe("<AuthPage />", () => {
         expect(asFragment()).toMatchSnapshot();
     });
 
+    it("should use a solid black background by default", () => {
+        const { container } = render(<AuthPage />);
+        expect(container.querySelector(".mx_AuthPage")).toHaveStyle({ background: "#000000" });
+        expect(container.querySelector(".mx_AuthPage_modalBlur")).toHaveStyle({ background: "#000000" });
+    });
+
     it("should use configured background url", () => {
         SdkConfig.add({ branding: { welcome_background_url: ["https://example.com/image.png"] } });
         const { container } = render(<AuthPage />);

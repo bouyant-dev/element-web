@@ -49,8 +49,7 @@ if (process.env.SENTRY_DSN) {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
-let ogImageUrl = process.env.RIOT_OG_IMAGE_URL;
-if (!ogImageUrl) ogImageUrl = "https://app.element.io/themes/element/img/logos/opengraph.png";
+const ogImageUrl = process.env.RIOT_OG_IMAGE_URL;
 
 const cssThemes = {
     // CSS themes
