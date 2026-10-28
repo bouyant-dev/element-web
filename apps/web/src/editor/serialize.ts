@@ -16,8 +16,23 @@ import type EditorModel from "./model";
 import SettingsStore from "../settings/SettingsStore";
 import SdkConfig from "../SdkConfig";
 import { Type } from "./parts";
+import { emoticonHtml } from "../utils/matcha/imagePacks";
+
+// Custom emoji go through markdown as "\u2045<n>\u2046", n counting them in order. These rare brackets and digits mean
+// nothing to markdown, whereas raw <img> markup can turn the whole message into an html block; being punctuation,
+// they also let "_" emphasis open or close next to an emoji, as its ":shortcode:" text would.
+const EMOTICON_PLACEHOLDER = /\u2045(\d+)\u2046/g;
+// The same placeholder after markdown percent-encoded it into a link target.
+const ENCODED_EMOTICON_PLACEHOLDER = /%E2%81%85(\d+)%E2%81%86/gi;
+
+/** A custom emoji part to put back into the HTML: the mxc URL of its image and its ":shortcode:" text. */
+interface Emoticon {
+    resourceId: string;
+    text: string;
+}
 
 export function mdSerialize(model: EditorModel): string {
+    let emoticonCount = 0;
     return model.parts.reduce((html, part) => {
         switch (part.type) {
             case Type.Newline:
@@ -42,6 +57,8 @@ export function mdSerialize(model: EditorModel): string {
                 const title = part.text.replace(/[[\\\]]/g, (c) => "\\" + c).replace(/\n/g, "<br>");
                 return html + `[${title}](${url})`;
             }
+            case Type.CustomEmoji:
+                return html + `\u2045${emoticonCount++}\u2046`;
         }
     }, "");
 }
@@ -56,14 +73,72 @@ export function htmlSerializeIfNeeded(
     { forceHTML = false, useMarkdown = true }: ISerializeOpts = {},
 ): string | undefined {
     if (!useMarkdown) {
-        return escapeHtml(textSerialize(model)).replace(/\n/g, "<br/>");
+        // Escape part by part so custom emoji can become images.
+        return model.parts
+            .map((part) =>
+                part.type === Type.CustomEmoji
+                    ? emoticonHtml(part.resourceId, shortcodeOf(part))
+                    : escapeHtml(textSerialize({ parts: [part] })),
+            )
+            .join("")
+            .replace(/\n/g, "<br/>");
     }
 
     const md = mdSerialize(model);
-    return htmlSerializeFromMdIfNeeded(md, { forceHTML });
+    const emoticons = model.parts.flatMap((part) => (part.type === Type.CustomEmoji ? [part] : []));
+    return htmlSerializeFromMdIfNeeded(md, { forceHTML, emoticons });
 }
 
-export function htmlSerializeFromMdIfNeeded(md: string, { forceHTML = false } = {}): string | undefined {
+function shortcodeOf(emoticon: Emoticon): string {
+    return emoticon.text.replace(/^:|:$/g, "");
+}
+
+/**
+ * Replaces the custom emoji placeholders left in rendered markdown with emoji images, or with their ":shortcode:"
+ * text inside code and attributes (link targets, image alt text, LaTeX source). A placeholder without a matching
+ * emoji is removed, so none reaches the sent HTML.
+ */
+function restoreEmoticons(doc: Document, emoticons: Emoticon[]): void {
+    const textOf = (n: string): string => emoticons[Number(n)]?.text ?? "";
+    for (const element of doc.body.querySelectorAll("*")) {
+        for (const attribute of element.attributes) {
+            attribute.value = attribute.value
+                .replace(EMOTICON_PLACEHOLDER, (_, n) => textOf(n))
+                .replace(ENCODED_EMOTICON_PLACEHOLDER, (_, n) => encodeURI(textOf(n)));
+        }
+    }
+
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+    for (const node of textNodes) {
+        // Splitting on the capturing pattern puts the emoji numbers at the odd indexes.
+        const pieces = node.data.split(EMOTICON_PLACEHOLDER);
+        if (pieces.length === 1) continue;
+        const inCode = !!node.parentElement?.closest("code, pre");
+        node.replaceWith(
+            ...pieces.map((piece, i) => {
+                if (i % 2 === 0) return piece;
+                const emoticon = emoticons[Number(piece)];
+                if (!emoticon) return "";
+                if (inCode) return emoticon.text;
+                const template = doc.createElement("template");
+                template.innerHTML = emoticonHtml(emoticon.resourceId, shortcodeOf(emoticon));
+                return template.content;
+            }),
+        );
+    }
+}
+
+/**
+ * Renders markdown to HTML, or returns undefined if it is plain text and `forceHTML` is not set.
+ * `emoticons` are the custom emoji whose placeholders are in `md`, in order; HTML is always returned when there are any.
+ */
+export function htmlSerializeFromMdIfNeeded(
+    md: string,
+    { forceHTML = false, emoticons = [] }: { forceHTML?: boolean; emoticons?: Emoticon[] } = {},
+): string | undefined {
     // copy of raw input to remove unwanted math later
     const orig = md;
 
@@ -131,7 +206,7 @@ export function htmlSerializeFromMdIfNeeded(md: string, { forceHTML = false } = 
     }
 
     const parser = new Markdown(md);
-    if (!parser.isPlainText() || forceHTML) {
+    if (!parser.isPlainText() || forceHTML || emoticons.length) {
         // feed Markdown output to HTML parser
         const phtml = new DOMParser().parseFromString(parser.toHTML(), "text/html");
 
@@ -155,6 +230,7 @@ export function htmlSerializeFromMdIfNeeded(md: string, { forceHTML = false } = 
                 }
             });
         }
+        if (emoticons.length) restoreEmoticons(phtml, emoticons);
         return phtml.body.innerHTML;
     }
     // ensure removal of escape backslashes in non-Markdown messages
@@ -163,7 +239,7 @@ export function htmlSerializeFromMdIfNeeded(md: string, { forceHTML = false } = 
     }
 }
 
-export function textSerialize(model: EditorModel): string {
+export function textSerialize(model: Pick<EditorModel, "parts">): string {
     return model.parts.reduce((text, part) => {
         switch (part.type) {
             case Type.Newline:
@@ -179,6 +255,7 @@ export function textSerialize(model: EditorModel): string {
                 // See https://github.com/vector-im/element-web/issues/16660
                 return text + part.resourceId;
             case Type.UserPill:
+            case Type.CustomEmoji:
                 return text + part.text;
         }
     }, "");

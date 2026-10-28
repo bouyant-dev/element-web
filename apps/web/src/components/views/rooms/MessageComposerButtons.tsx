@@ -23,7 +23,7 @@ import {
     StickerIcon,
     TextFormattingIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { UploadButton, useViewModel } from "@element-hq/web-shared-components";
+import { type PickerCustomEmoji, UploadButton, useViewModel } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { CollapsibleButton, OverflowMenuContext } from "./CollapsibleButton";
@@ -46,7 +46,7 @@ import { useScopedRoomContext } from "../../../contexts/ScopedRoomContext.tsx";
 import { useRoomUploadViewModel } from "../../../viewmodels/room/RoomUploadViewModel.tsx";
 
 interface IProps {
-    addEmoji: (emoji: string) => boolean;
+    addEmoji: (emoji: string, custom?: PickerCustomEmoji) => boolean;
     haveRecording: boolean;
     isMenuOpen: boolean;
     isStickerPickerOpen: boolean;

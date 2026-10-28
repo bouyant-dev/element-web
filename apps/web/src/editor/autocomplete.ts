@@ -103,6 +103,10 @@ export default class AutocompleteWrapperModel {
             case "command":
                 // command needs special handling for auto complete, but also renders as plain texts
                 return [(this.partCreator as CommandPartCreator).command(text)];
+            case "custom-emoji":
+                // the completion ID is the mxc URL of the image
+                if (completionId) return [this.partCreator.customEmoji(text, completionId)];
+                return this.partCreator.plainWithEmoji(text);
             default:
                 // used for emoji and other plain text completion replacement
                 return this.partCreator.plainWithEmoji(text);

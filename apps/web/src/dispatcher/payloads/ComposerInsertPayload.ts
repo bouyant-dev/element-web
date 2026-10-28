@@ -27,6 +27,11 @@ interface IComposerInsertMentionPayload extends IBaseComposerInsertPayload {
 
 interface IComposerInsertPlaintextPayload extends IBaseComposerInsertPayload {
     text: string;
+    /**
+     * A custom emoji (mxc URL, shortcode without colons) to insert as an image where the composer can;
+     * `text` is then its ":shortcode:" fallback.
+     */
+    customEmoji?: { url: string; shortcode: string };
 }
 
 export type ComposerInsertPayload = IComposerInsertMentionPayload | IComposerInsertPlaintextPayload;

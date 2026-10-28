@@ -19,7 +19,7 @@ import {
 import { Tooltip } from "@vector-im/compound-web";
 import { logger } from "matrix-js-sdk/src/logger";
 import { LockOffIcon, SendSolidIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
-import { useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
+import { type PickerCustomEmoji, useCreateAutoDisposedViewModel } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
@@ -391,10 +391,12 @@ export class MessageComposer extends React.Component<IProps, IState> {
         }
     };
 
-    private addEmoji = (emoji: string): boolean => {
+    private addEmoji = (emoji: string, custom?: PickerCustomEmoji): boolean => {
         dis.dispatch<ComposerInsertPayload>({
             action: Action.ComposerInsert,
-            text: emoji,
+            // composers that cannot show custom emoji insert the shortcode instead
+            text: custom ? `:${custom.shortcode}:` : emoji,
+            customEmoji: custom && { url: custom.key, shortcode: custom.shortcode },
             timelineRenderingType: this.context.timelineRenderingType,
         });
         return true;

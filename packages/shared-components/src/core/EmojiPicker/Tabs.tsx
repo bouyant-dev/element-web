@@ -7,7 +7,7 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-import React, { useCallback, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import classNames from "classnames";
 
 import { _t } from "../i18n/i18n";
@@ -91,7 +91,7 @@ export const Tabs: React.FC<Props> = ({
             const category = categories[findNearestEnabled(index, delta)!];
             if (category) {
                 onAnchorClick(category.id);
-                tabRefs.current[category.id]?.current?.focus();
+                tabRefs.current[category.id]?.focus();
             }
         },
         [categories, findNearestEnabled, onAnchorClick],
@@ -139,29 +139,42 @@ export const Tabs: React.FC<Props> = ({
         [getAction, changeCategoryRelative, changeCategoryAbsolute, categories.length],
     );
 
-    const tabRefs = useRef({} as Record<CategoryKey, React.RefObject<HTMLButtonElement | null>>);
-    if (!tabRefs.current.recent) {
-        for (const category of categories) {
-            // oxlint-disable-next-line react/immutability
-            tabRefs.current[category.id] = React.createRef<HTMLButtonElement>();
-        }
-    }
+    // Filled per tab as it mounts, so categories added after the first render are included.
+    const tabRefs = useRef<Partial<Record<CategoryKey, HTMLButtonElement | null>>>({});
+
+    // When custom category tabs make the bar scroll, keep the selected tab in view as the grid scrolls. Only the bar
+    // scrolls, unlike with scrollIntoView, which would also move the picker's ancestors.
+    useEffect(() => {
+        const tab = tabRefs.current[selectedCategory];
+        const bar = tab?.parentElement;
+        if (!tab || !bar) return;
+        const tabRect = tab.getBoundingClientRect();
+        const barRect = bar.getBoundingClientRect();
+        const overflow = Math.min(tabRect.left - barRect.left, 0) || Math.max(tabRect.right - barRect.right, 0);
+        if (overflow) bar.scrollBy({ left: overflow });
+    }, [selectedCategory]);
 
     return (
         <nav className={styles.header} role="tablist" aria-label={_t("emoji|categories")} onKeyDown={onKeyDown}>
             {categories.map((category) => {
+                const isCustom = "name" in category;
                 const classes = classNames(styles.anchor, {
                     [styles.anchorSelected]: category.id === selectedCategory,
                 });
+                const name = isCustom ? category.name : _t(category.untranslatedName);
                 return (
                     <button
                         type="button"
                         disabled={!enabledCategories.includes(category.id)}
                         key={category.id}
-                        ref={tabRefs.current[category.id]}
+                        ref={(button) => {
+                            tabRefs.current[category.id] = button;
+                        }}
                         className={classes}
                         onClick={() => onAnchorClick(category.id)}
-                        title={_t(category.untranslatedName)}
+                        title={name}
+                        // A custom category's tab has an image rather than an emoji as content
+                        aria-label={isCustom ? name : undefined}
                         role="tab"
                         tabIndex={category.id === selectedCategory ? 0 : -1} // roving
                         aria-selected={category.id === selectedCategory}
@@ -171,7 +184,11 @@ export const Tabs: React.FC<Props> = ({
                         // region instead.
                         aria-controls={pickerBodyId}
                     >
-                        {category.emoji}
+                        {isCustom
+                            ? category.iconSrc && (
+                                  <img className={styles.customEmoji} src={category.iconSrc} alt="" draggable={false} />
+                              )
+                            : category.emoji}
                     </button>
                 );
             })}

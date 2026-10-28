@@ -9,6 +9,7 @@ Please see LICENSE files in the repository root for full details.
 import classNames from "classnames";
 import React, { type JSX, useContext } from "react";
 import { ReactionIcon } from "@vector-im/compound-design-tokens/assets/web/icons";
+import { type PickerCustomEmoji } from "@element-hq/web-shared-components";
 
 import { _t } from "../../../languageHandler";
 import ContextMenu, { aboveLeftOf, type MenuProps, useContextMenu } from "../../structures/ContextMenu";
@@ -16,7 +17,7 @@ import { CollapsibleButton, OverflowMenuContext } from "./CollapsibleButton";
 import { EmojiPickerWithRecents } from "../../../emojipicker/EmojiPickerWithRecents";
 
 interface IEmojiButtonProps {
-    addEmoji: (unicode: string) => boolean;
+    addEmoji: (unicode: string, custom?: PickerCustomEmoji) => boolean;
     menuPosition?: MenuProps;
     className?: string;
 }

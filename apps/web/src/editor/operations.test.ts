@@ -84,6 +84,22 @@ describe("editor/operations: formatting operations", () => {
             expect((renderer.caret as DocumentPosition).offset).toBe(4 + expectation.indexOf("|"));
             expect(model.parts[0].text).toBe("foo " + expectation.replace("|", "") + " bar");
         });
+
+        it("keeps custom emoji in the link text", () => {
+            const model = new EditorModel(
+                [pc.plain("look "), pc.customEmoji(":blob:", "mxc://hs.tld/blob"), pc.plain(" bar")],
+                pc,
+                renderer,
+            );
+            const range = model.startRange(model.positionForOffset(0, false), model.positionForOffset(11, true));
+
+            formatRangeAsLink(range, "https://a.b");
+            expect(model.serializeParts()).toEqual([
+                { type: "plain", text: "[look " },
+                { type: "custom-emoji", text: ":blob:", resourceId: "mxc://hs.tld/blob" },
+                { type: "plain", text: "](https://a.b) bar" },
+            ]);
+        });
     });
 
     describe("toggleInlineFormat", () => {

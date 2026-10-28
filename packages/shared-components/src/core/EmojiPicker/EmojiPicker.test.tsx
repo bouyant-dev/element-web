@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { render, waitFor, screen } from "@test-utils";
 import { describe, expect, it, vi } from "vitest";
 
-import { EmojiPicker, filterEmojis } from "./EmojiPicker";
+import { EmojiPicker, filterEmojis, type PickerCustomEmojiCategory } from "./EmojiPicker";
 
 describe("EmojiPicker", function () {
     // Recent emojis as they would be provided by the app, most used first
@@ -454,6 +454,255 @@ describe("EmojiPicker", function () {
             await waitFor(() => {
                 expect(peopleTab).toHaveFocus();
             });
+        });
+    });
+
+    describe("Custom emoji", () => {
+        const image = (fill: string): string =>
+            `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><rect width="2" height="2" fill="${fill}"/></svg>`)}`;
+        const BLOB = { key: "mxc://example.org/blob", shortcode: "blob_cat", src: image("orange") };
+        const PARROT = { key: "mxc://example.org/parrot", shortcode: "party_parrot", src: image("green") };
+        const CATEGORIES: PickerCustomEmojiCategory[] = [{ id: "pack", name: "Cat Server", emojis: [BLOB, PARROT] }];
+
+        // The active emoji's text, or the alt text of a custom emoji's image
+        const getActiveEmojiName = (container: HTMLElement): string => {
+            const node = container.querySelector('[role="gridcell"] [tabindex="0"]');
+            return node?.querySelector("img")?.alt ?? node?.textContent ?? "";
+        };
+
+        it("should show a tab and a section for a custom category after the recent one", async () => {
+            render(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} customEmojiCategories={CATEGORIES} />);
+
+            const tab = screen.getByRole("tab", { name: "Cat Server" });
+            expect(screen.getAllByRole("tab").map((t) => t.getAttribute("title"))).toEqual([
+                "Frequently Used",
+                "Cat Server",
+                "Smileys & People",
+                "Animals & Nature",
+                "Food & Drink",
+                "Activities",
+                "Travel & Places",
+                "Objects",
+                "Symbols",
+                "Flags",
+            ]);
+            // Selected, as there are no recent emoji, and showing the first emoji's image
+            expect(tab).toHaveAttribute("aria-selected", "true");
+            expect(tab.querySelector("img")).toHaveAttribute("src", BLOB.src);
+
+            expect(await screen.findByRole("heading", { name: "Cat Server" })).toBeInTheDocument();
+            const img = screen.getByRole("img", { name: ":blob_cat:" });
+            expect(img).toHaveAttribute("src", BLOB.src);
+            expect(img).toHaveAttribute("loading", "lazy");
+            expect(img).toHaveAttribute("draggable", "false");
+            expect(screen.getByRole("button", { name: ":party_parrot:" })).toBeInTheDocument();
+        });
+
+        it("should prefer the category's icon for its tab", () => {
+            render(
+                <EmojiPicker
+                    onChoose={vi.fn()}
+                    onFinished={vi.fn()}
+                    customEmojiCategories={[{ ...CATEGORIES[0], iconSrc: PARROT.src }]}
+                />,
+            );
+
+            expect(screen.getByRole("tab", { name: "Cat Server" }).querySelector("img")).toHaveAttribute(
+                "src",
+                PARROT.src,
+            );
+        });
+
+        it("should keep the recent category selected when there are recent emoji", () => {
+            render(
+                <EmojiPicker
+                    onChoose={vi.fn()}
+                    onFinished={vi.fn()}
+                    recentEmojis={RECENT_EMOJIS}
+                    customEmojiCategories={CATEGORIES}
+                />,
+            );
+
+            expect(screen.getByRole("tab", { name: "🕒" })).toHaveAttribute("aria-selected", "true");
+            expect(screen.getByRole("tab", { name: "Cat Server" })).toHaveAttribute("aria-selected", "false");
+        });
+
+        it("should pass the custom emoji to onChoose and not record it as recent", async () => {
+            const onChoose = vi.fn(() => true);
+            const onRecordRecent = vi.fn();
+            render(
+                <EmojiPicker
+                    onChoose={onChoose}
+                    onFinished={vi.fn()}
+                    onRecordRecent={onRecordRecent}
+                    customEmojiCategories={CATEGORIES}
+                />,
+            );
+
+            await userEvent.click(await screen.findByRole("button", { name: ":party_parrot:" }));
+            expect(onChoose).toHaveBeenCalledWith(PARROT.key, PARROT);
+            expect(onRecordRecent).not.toHaveBeenCalled();
+        });
+
+        it("should find custom emoji by shortcode", async () => {
+            const { container } = render(
+                <EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} customEmojiCategories={CATEGORIES} />,
+            );
+
+            await userEvent.type(container.querySelector("input")!, "PARROT");
+            // Together, as the list may be briefly empty while it re-renders
+            await waitFor(() => {
+                expect(screen.getByRole("button", { name: ":party_parrot:" })).toBeInTheDocument();
+                expect(screen.queryByRole("button", { name: ":blob_cat:" })).not.toBeInTheDocument();
+                expect(getActiveEmojiName(container)).toEqual(":party_parrot:");
+            });
+            expect(screen.getByRole("tab", { name: "Cat Server" })).toBeEnabled();
+            expect(screen.getByRole("tab", { name: "😀" })).toBeDisabled();
+        });
+
+        it("should match custom emoji by key in selectedEmojis and isEmojiDisabled", async () => {
+            render(
+                <EmojiPicker
+                    onChoose={vi.fn()}
+                    onFinished={vi.fn()}
+                    customEmojiCategories={CATEGORIES}
+                    selectedEmojis={new Set([BLOB.key])}
+                    isEmojiDisabled={(unicode) => unicode === PARROT.key}
+                />,
+            );
+
+            expect(await screen.findByRole("checkbox", { name: ":blob_cat:" })).toHaveAttribute("aria-checked", "true");
+            const parrot = screen.getByRole("checkbox", { name: ":party_parrot:" });
+            expect(parrot).toHaveAttribute("aria-checked", "false");
+            expect(parrot).toHaveAttribute("aria-disabled", "true");
+        });
+
+        it("should reach custom emoji with keyboard navigation", async () => {
+            const onChoose = vi.fn();
+            const onFinished = vi.fn();
+            const { container } = render(
+                <EmojiPicker onChoose={onChoose} onFinished={onFinished} customEmojiCategories={CATEGORIES} />,
+            );
+
+            await waitFor(() => expect(container.querySelector("input")).toHaveFocus());
+            await waitFor(() => expect(getActiveEmojiName(container)).toEqual(":blob_cat:"));
+            // First arrow key press shows the highlight without navigating
+            await userEvent.keyboard("[ArrowDown]");
+            expect(getActiveEmojiName(container)).toEqual(":blob_cat:");
+            await userEvent.keyboard("[ArrowRight]");
+            expect(getActiveEmojiName(container)).toEqual(":party_parrot:");
+            // Down into the built-in emoji, and back up
+            await userEvent.keyboard("[ArrowDown]");
+            expect(getActiveEmojiName(container)).not.toMatch(/^:/);
+            await userEvent.keyboard("[ArrowUp]");
+            expect(getActiveEmojiName(container)).toEqual(":party_parrot:");
+            await userEvent.keyboard("[Enter]");
+
+            expect(onChoose).toHaveBeenCalledWith(PARROT.key, PARROT);
+            expect(onFinished).toHaveBeenCalled();
+        });
+
+        it("should show the shortcode of a hovered custom emoji in the preview", async () => {
+            const { container } = render(
+                <EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} customEmojiCategories={CATEGORIES} />,
+            );
+
+            await userEvent.hover(await screen.findByRole("button", { name: ":blob_cat:" }));
+            const preview = container.querySelector("section > div:last-child")!;
+            expect(preview.textContent).toEqual(":blob_cat:");
+            expect(preview.querySelector("img")).toHaveAttribute("src", BLOB.src);
+        });
+
+        it("should rank a custom emoji whatever the case of its shortcode", async () => {
+            const POG = { key: "mxc://example.org/pog", shortcode: "Pog", src: image("red") };
+            const POGGER = { key: "mxc://example.org/pogger", shortcode: "pogger", src: image("blue") };
+            const { container } = render(
+                <EmojiPicker
+                    onChoose={vi.fn()}
+                    onFinished={vi.fn()}
+                    customEmojiCategories={[{ id: "pack", name: "Pog", emojis: [POGGER, POG] }]}
+                />,
+            );
+
+            await userEvent.type(container.querySelector("input")!, "pog");
+            // The exact, shorter match first, as for built-in emoji
+            await waitFor(() => expect(getActiveEmojiName(container)).toEqual(":Pog:"));
+        });
+
+        it("should wrap a long custom shortcode in the preview", async () => {
+            const LONG = { key: "mxc://example.org/long", shortcode: "w".repeat(40), src: image("blue") };
+            const { container } = render(
+                <EmojiPicker
+                    onChoose={vi.fn()}
+                    onFinished={vi.fn()}
+                    customEmojiCategories={[{ id: "pack", name: "Long", emojis: [LONG] }]}
+                />,
+            );
+
+            await userEvent.hover(await screen.findByRole("button", { name: `:${LONG.shortcode}:` }));
+            const name = [...container.querySelectorAll("section > div:last-child div")].find(
+                (div) => div.textContent === `:${LONG.shortcode}:` && !div.children.length,
+            )!;
+            expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
+        });
+
+        it("should keep the selected tab in view as the grid scrolls", async () => {
+            const { container } = render(
+                <EmojiPicker
+                    onChoose={vi.fn()}
+                    onFinished={vi.fn()}
+                    customEmojiCategories={[CATEGORIES[0], { ...CATEGORIES[0], id: "pack2", name: "Second" }]}
+                />,
+            );
+            const tablist = screen.getByRole("tablist");
+            const flags = screen.getByRole("tab", { name: "🏁" });
+            // Off the end of the bar to start with
+            expect(flags.getBoundingClientRect().right).toBeGreaterThan(tablist.getBoundingClientRect().right);
+
+            const body = container.querySelector<HTMLElement>(`#${CSS.escape(flags.getAttribute("aria-controls")!)}`)!;
+            await waitFor(() => {
+                body.scrollTop = body.scrollHeight;
+                expect(flags).toHaveAttribute("aria-selected", "true");
+            });
+            await waitFor(() =>
+                expect(flags.getBoundingClientRect().right).toBeLessThanOrEqual(tablist.getBoundingClientRect().right),
+            );
+        });
+
+        it("should navigate to custom category tabs added after mount", async () => {
+            const { container, rerender } = render(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} />);
+            rerender(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} customEmojiCategories={CATEGORIES} />);
+
+            await waitFor(() => {
+                expect(container.querySelector('[data-category-id="custom:pack"]')).toBeInTheDocument();
+            });
+            // Now at the top of the list, so selected
+            const customTab = screen.getByRole("tab", { name: "Cat Server" });
+            await waitFor(() => expect(customTab).toHaveAttribute("aria-selected", "true"));
+
+            customTab.focus();
+            await userEvent.keyboard("[End]");
+            await waitFor(() => expect(screen.getByRole("tab", { name: "🏁" })).toHaveFocus());
+            // The first tab (recent) is disabled, so Home lands on the custom one
+            await userEvent.keyboard("[Home]");
+            await waitFor(() => expect(customTab).toHaveFocus());
+        });
+
+        it("should scroll extra tabs rather than wrap them", () => {
+            const { unmount } = render(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} />);
+            const builtInOnly = screen.getByRole("tablist");
+            // The built-in tabs fill the width exactly
+            expect(builtInOnly.scrollWidth).toEqual(builtInOnly.clientWidth);
+            const height = builtInOnly.clientHeight;
+            unmount();
+
+            render(<EmojiPicker onChoose={vi.fn()} onFinished={vi.fn()} customEmojiCategories={CATEGORIES} />);
+            const tablist = screen.getByRole("tablist");
+            // No taller, excluding any scrollbar: the image tabs must not push the row down
+            expect(tablist.clientHeight).toBeLessThanOrEqual(height);
+            expect(tablist.scrollWidth).toBeGreaterThan(tablist.clientWidth);
+            // All on one line
+            for (const tab of screen.getAllByRole("tab")) expect(tab.offsetTop).toBeLessThan(tab.offsetHeight);
         });
     });
 });

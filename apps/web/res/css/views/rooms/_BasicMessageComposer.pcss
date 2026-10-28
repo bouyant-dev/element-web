@@ -90,6 +90,21 @@ Please see LICENSE files in the repository root for full details.
             }
         }
 
+        /* Custom emoji keep their ":shortcode:" text for the caret and for copying, but show only the image */
+        span.mx_CustomEmoji {
+            font-size: 0;
+            color: transparent;
+
+            &::before {
+                content: "";
+                display: inline-block;
+                width: 1.375rem;
+                height: 1.375rem;
+                vertical-align: middle;
+                background: var(--avatar-background) center / contain no-repeat;
+            }
+        }
+
         &.mx_BasicMessageComposer_input_disabled {
             /* Ignore all user input to avoid accidentally triggering the composer */
             pointer-events: none;

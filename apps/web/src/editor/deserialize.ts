@@ -16,6 +16,7 @@ import SdkConfig from "../SdkConfig";
 import Markdown from "../Markdown";
 import { textToHtmlRainbow } from "../utils/colour";
 import { stripPlainReply } from "../utils/Reply";
+import { EMOTICON_ATTRIBUTE, parseEmojiImages } from "../utils/matcha/imagePacks";
 
 const LIST_TYPES = ["UL", "OL", "LI"];
 
@@ -102,7 +103,15 @@ function parseLink(n: Node, pc: PartCreator, opts: IParseOptions): Part[] {
 }
 
 function parseImage(n: Node, pc: PartCreator, opts: IParseOptions): Part[] {
-    const { alt, src } = n as HTMLImageElement;
+    const image = n as HTMLImageElement;
+    if (image.hasAttribute(EMOTICON_ATTRIBUTE) && SdkConfig.get("matcha_thread_tabs")) {
+        // MSC2545 puts the shortcode in the title; the alt is a description, or the shortcode again.
+        const shortcode = (image.getAttribute("title") || image.getAttribute("alt") || "").replace(/^:|:$/g, "");
+        // Only an image a pack could hold becomes an emoji, whose text the composer hides; anything else stays visible.
+        const [emoji] = parseEmojiImages({ images: { [shortcode]: { url: image.getAttribute("src") } } });
+        if (emoji) return [pc.customEmoji(`:${emoji.shortcode}:`, emoji.url)];
+    }
+    const { alt, src } = image;
     return pc.plainWithEmoji(`![${escape(alt)}](${src})`);
 }
 

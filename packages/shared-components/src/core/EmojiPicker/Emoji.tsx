@@ -8,17 +8,17 @@
  */
 
 import React, { useCallback } from "react";
-import { type Emoji as IEmoji } from "@matrix-org/emojibase-bindings";
 import classNames from "classnames";
 
 import { RovingButton, type ButtonEvent } from "./RovingButton";
+import { type GridEmoji } from "./EmojiPicker";
 import styles from "./EmojiPicker.module.css";
 
 interface IProps {
     /**
      * The emoji to render.
      */
-    emoji: IEmoji;
+    emoji: GridEmoji;
     /**
      * Set of which emojis are already selected and should be decorated as such.
      * If specified, emoji will use a checkbox role with aria-checked set appropriately.
@@ -30,19 +30,19 @@ interface IProps {
      * @param ev - The button event
      * @param emoji - The emoji that was clicked
      */
-    onClick: (ev: ButtonEvent, emoji: IEmoji) => void;
+    onClick: (ev: ButtonEvent, emoji: GridEmoji) => void;
     /**
      * Called when the mouse enters the emoji.
      *
      * @param emoji - The emoji that the mouse entered
      */
-    onMouseEnter: (emoji: IEmoji) => void;
+    onMouseEnter: (emoji: GridEmoji) => void;
     /**
      * Called when the mouse leaves the emoji.
      *
      * @param emoji - The emoji that the mouse left
      */
-    onMouseLeave: (emoji: IEmoji) => void;
+    onMouseLeave: (emoji: GridEmoji) => void;
     /**
      * If true, the emoji will be disabled and not clickable.
      */
@@ -55,6 +55,13 @@ interface IProps {
      * Optional class name to apply to the emoji button.
      */
     className?: string;
+}
+
+/**
+ * The image of a custom emoji, in place of a unicode emoji's glyph.
+ */
+export function CustomEmojiImage({ shortcode, src }: { shortcode: string; src: string }): React.ReactNode {
+    return <img className={styles.customEmoji} src={src} alt={`:${shortcode}:`} loading="lazy" draggable={false} />;
 }
 
 /**
@@ -87,7 +94,13 @@ export const Emoji = React.memo(function Emoji({
             aria-checked={isSelected}
             focusOnMouseOver
         >
-            <div className={classNames(styles.item, { [styles.itemSelected]: isSelected })}>{emoji.unicode}</div>
+            <div className={classNames(styles.item, { [styles.itemSelected]: isSelected })}>
+                {emoji.custom ? (
+                    <CustomEmojiImage shortcode={emoji.custom.shortcode} src={emoji.custom.src} />
+                ) : (
+                    emoji.unicode
+                )}
+            </div>
         </RovingButton>
     );
 });

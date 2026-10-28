@@ -9,6 +9,7 @@ Please see LICENSE files in the repository root for full details.
 
 import React from "react";
 import { type MatrixEvent, EventType, RelationType, type Relations, RelationsEvent } from "matrix-js-sdk/src/matrix";
+import { type PickerCustomEmoji } from "@element-hq/web-shared-components";
 
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import dis from "../../../dispatcher/dispatcher";
@@ -16,6 +17,7 @@ import { Action } from "../../../dispatcher/actions";
 import RoomContext from "../../../contexts/RoomContext";
 import { type FocusComposerPayload } from "../../../dispatcher/payloads/FocusComposerPayload";
 import { EmojiPickerWithRecents } from "../../../emojipicker/EmojiPickerWithRecents";
+import { reactionShortcodeContent } from "../../../viewmodels/room/timeline/event-tile/reactions/reactionShortcode";
 
 interface IProps {
     mxEvent: MatrixEvent;
@@ -85,7 +87,7 @@ class ReactionPicker extends React.Component<IProps, IState> {
         });
     };
 
-    private onChoose = (reaction: string): boolean => {
+    private onChoose = (reaction: string, custom?: PickerCustomEmoji): boolean => {
         this.componentWillUnmount();
         this.props.onFinished();
         const myReactions = this.getReactions();
@@ -106,6 +108,8 @@ class ReactionPicker extends React.Component<IProps, IState> {
                     event_id: this.props.mxEvent.getId()!,
                     key: reaction,
                 },
+                // A custom emoji reacts with its mxc URL; the shortcode lets clients name it.
+                ...(custom && reactionShortcodeContent(`:${custom.shortcode}:`)),
             });
             dis.dispatch({ action: "message_sent" });
             dis.dispatch<FocusComposerPayload>({
@@ -126,6 +130,7 @@ class ReactionPicker extends React.Component<IProps, IState> {
     public render(): React.ReactNode {
         return (
             <EmojiPickerWithRecents
+                room={MatrixClientPeg.safeGet().getRoom(this.props.mxEvent.getRoomId()) ?? undefined}
                 onChoose={this.onChoose}
                 isEmojiDisabled={this.isEmojiDisabled}
                 onFinished={this.props.onFinished}

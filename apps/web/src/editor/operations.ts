@@ -219,8 +219,10 @@ export function formatRangeAsLink(range: Range, text?: string): void {
         const newParts = [partCreator.plain(linkDescription)];
         replaceRangeAndMoveCaret(range, newParts, 0);
     } else {
+        // Custom emoji keep their image in the link text; everything else becomes its text, as before.
+        const parts = range.parts.map((part) => (part.type === Type.CustomEmoji ? part : partCreator.plain(part.text)));
         // We set offset to -1 here so that the caret lands between the brackets
-        replaceRangeAndMoveCaret(range, [partCreator.plain(`[${range.text}](${text ?? ""})`)], -1);
+        replaceRangeAndMoveCaret(range, [partCreator.plain("["), ...parts, partCreator.plain(`](${text ?? ""})`)], -1);
     }
 }
 

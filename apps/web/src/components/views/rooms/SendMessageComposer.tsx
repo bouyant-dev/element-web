@@ -39,7 +39,7 @@ import {
     unescapeMessage,
 } from "../../../editor/serialize";
 import BasicMessageComposer, { REGEX_EMOTICON } from "./BasicMessageComposer";
-import { CommandPartCreator, type Part, type PartCreator, type SerializedPart } from "../../../editor/parts";
+import { CommandPartCreator, type Part, type PartCreator, type SerializedPart, Type } from "../../../editor/parts";
 import { findEditableEvent } from "../../../utils/EventUtils";
 import SendHistoryManager from "../../../SendHistoryManager";
 import { CommandCategories } from "../../../slash-commands/SlashCommands";
@@ -69,6 +69,9 @@ import { type RoomUploadViewModel, useRoomUploadViewModel } from "../../../viewm
 import { type MessageComposerUrlPreviewViewModel } from "../../../viewmodels/composer/MessageComposerUrlPreviewViewModel";
 import { linksIn } from "../../../utils/UrlUtils";
 import { type MessageComposerUrlPreviewSnapshot } from "@element-hq/web-shared-components";
+import { replaceTypedCustomEmoji } from "../../../editor/customEmoji";
+import { availableEmojiPacks } from "../../../hooks/useCustomEmojiPacks";
+import { REACTION_SHORTCODE_KEY } from "../../../viewmodels/room/timeline/event-tile/reactions/reactionShortcode";
 
 // The prefix used when persisting editor drafts to localstorage.
 export const EDITOR_STATE_STORAGE_PREFIX = "mx_cider_state_";
@@ -118,6 +121,10 @@ export function createMessageContent(
 export function isQuickReaction(model: EditorModel): boolean {
     const parts = model.parts;
     if (parts.length == 0) return false;
+    // "+:shortcode:" of a custom emoji
+    if (parts.length === 2 && parts[1].type === Type.CustomEmoji) {
+        return parts[0].text === "+" || parts[0].text === "+ ";
+    }
     const text = textSerialize(model);
     // shortcut takes the form "+:emoji:" or "+ :emoji:""
     // can be in 1 or 2 parts
@@ -310,7 +317,10 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
         const timeline = this.context.liveTimeline;
         if (!timeline) return;
         const events = timeline.getEvents();
-        const reaction = this.model.parts[1].text;
+        const reactionPart = this.model.parts[1];
+        // A custom emoji reacts with its mxc URL, and names itself with its shortcode.
+        const custom = reactionPart.type === Type.CustomEmoji;
+        const reaction = custom ? reactionPart.resourceId : reactionPart.text;
         for (let i = events.length - 1; i >= 0; i--) {
             if (events[i].getType() === EventType.RoomMessage) {
                 let shouldReact = true;
@@ -338,6 +348,7 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
                             event_id: lastMessage.getId()!,
                             key: reaction,
                         },
+                        ...(custom && { [REACTION_SHORTCODE_KEY.name]: reactionPart.text }),
                     });
                     dis.dispatch({ action: "message_sent" });
                 }
@@ -378,6 +389,12 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
                 REGEX_EMOTICON,
             );
         }
+        // Fully typed ":shortcode:"s of custom emoji become the emoji; there are no packs unless the beta is on.
+        replaceTypedCustomEmoji(
+            model,
+            availableEmojiPacks(this.props.mxClient, this.props.room),
+            this.editorRef.current?.getCaret(),
+        );
 
         const replyToEvent = this.props.replyToEvent;
         let shouldSend = true;
@@ -598,6 +615,8 @@ export class SendMessageComposer extends React.Component<ISendMessageComposerPro
                     this.editorRef.current?.insertMention(payload.userId);
                 } else if (payload.event) {
                     this.editorRef.current?.insertQuotedMessage(payload.event);
+                } else if (payload.customEmoji) {
+                    this.editorRef.current?.insertCustomEmoji(payload.customEmoji.url, payload.customEmoji.shortcode);
                 } else if (payload.text) {
                     this.editorRef.current?.insertPlaintext(payload.text);
                 }

@@ -8,12 +8,15 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment jsdom
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { type MatrixEvent } from "matrix-js-sdk/src/matrix";
 
 import { parseEvent } from "./deserialize";
 import { type Part } from "./parts";
 import { createPartCreator } from "./__mocks__";
+import EditorModel from "./model";
+import { htmlSerializeIfNeeded } from "./serialize";
+import SdkConfig from "../SdkConfig";
 
 const FOUR_SPACES = " ".repeat(4);
 
@@ -385,6 +388,64 @@ describe("editor/deserialize", function () {
             const html = "> \\<del>no formatting here\\</del>";
             const parts = normalize(parseEvent(htmlMessage(html), createPartCreator()));
             expect(parts).toMatchSnapshot();
+        });
+        describe("custom emoji", () => {
+            beforeEach(() => SdkConfig.add({ matcha_thread_tabs: true }));
+            afterEach(() => SdkConfig.reset());
+
+            it("become custom emoji parts", () => {
+                const html =
+                    'hi <img data-mx-emoticon src="mxc://hs.tld/blob" alt=":blob:" title=":blob:" height="32" /> ' +
+                    '<img data-mx-emoticon src="mxc://hs.tld/cat" title=":cat:" /> <img src="mxc://hs.tld/pic" alt="pic">';
+                const parts = normalize(parseEvent(htmlMessage(html), createPartCreator()));
+                expect(parts).toStrictEqual([
+                    { type: "plain", text: "hi " },
+                    { type: "custom-emoji", text: ":blob:", resourceId: "mxc://hs.tld/blob" },
+                    { type: "plain", text: " " },
+                    { type: "custom-emoji", text: ":cat:", resourceId: "mxc://hs.tld/cat" },
+                    { type: "plain", text: " ![pic](mxc://hs.tld/pic)" },
+                ]);
+            });
+            it("take their shortcode from the title before the alt", () => {
+                const html =
+                    '<img data-mx-emoticon src="mxc://hs.tld/cat" alt="A cat holding a heart" title=":cat_luvs_u:">';
+                const parts = normalize(parseEvent(htmlMessage(html), createPartCreator()));
+                expect(parts).toStrictEqual([
+                    { type: "custom-emoji", text: ":cat_luvs_u:", resourceId: "mxc://hs.tld/cat" },
+                ]);
+            });
+            it("survive editing", () => {
+                const pc = createPartCreator();
+                const html =
+                    '<img data-mx-emoticon="" src="mxc://hs.tld/blob" alt=":blob:" title=":blob:" height="32"> ' +
+                    "<strong>hi</strong> <code>:blob:</code>";
+                const model = new EditorModel(parseEvent(htmlMessage(html), pc), pc);
+                expect(htmlSerializeIfNeeded(model)).toBe(html);
+            });
+            it("keep italics touching them when edited", () => {
+                const pc = createPartCreator();
+                const blob =
+                    '<img data-mx-emoticon="" src="mxc://hs.tld/blob" alt=":blob:" title=":blob:" height="32">';
+                const html = `<em>hi</em>${blob}<em>there</em>`;
+                const model = new EditorModel(parseEvent(htmlMessage(html), pc), pc);
+                expect(htmlSerializeIfNeeded(model)).toBe(html);
+            });
+            it.each([
+                ["another source", '<img data-mx-emoticon src="https://example.org/blob.png" alt=":blob:">'],
+                ["a malformed mxc", '<img data-mx-emoticon src="mxc://a/b/c" alt=":blob:">'],
+                ["a shortcode with spaces", '<img data-mx-emoticon src="mxc://hs.tld/blob" alt=":pay here now:">'],
+                ["no shortcode", '<img data-mx-emoticon src="mxc://hs.tld/blob">'],
+            ])("stay visible as markdown with %s", (_, html) => {
+                const parts = normalize(parseEvent(htmlMessage(html), createPartCreator()));
+                expect(parts).toHaveLength(1);
+                expect(parts[0]).toMatchObject({ type: "plain", text: expect.stringMatching(/^!\[.*\]\(.+\)$/) });
+            });
+            it("stay visible as markdown when the beta is off", () => {
+                SdkConfig.add({ matcha_thread_tabs: false });
+                const html = '<img data-mx-emoticon src="mxc://hs.tld/blob" alt=":blob:" title=":blob:">';
+                const parts = normalize(parseEvent(htmlMessage(html), createPartCreator()));
+                expect(parts).toStrictEqual([{ type: "plain", text: "![:blob:](mxc://hs.tld/blob)" }]);
+            });
         });
     });
     describe("plaintext messages", function () {

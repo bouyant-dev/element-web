@@ -8,7 +8,7 @@
 import { type Meta, type StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
-import { EmojiPicker } from "./EmojiPicker";
+import { EmojiPicker, type PickerCustomEmoji } from "./EmojiPicker";
 
 const meta = {
     title: "Core/EmojiPicker",
@@ -53,5 +53,44 @@ export const DisabledEmoji: Story = {
 export const HideQuickReactions: Story = {
     args: {
         showQuickReactions: false,
+    },
+};
+
+// A custom emoji with an inline image, so the story needs no network
+const customEmoji = (shortcode: string, fill: string): PickerCustomEmoji => ({
+    key: `mxc://example.org/${shortcode}`,
+    shortcode,
+    src: `data:image/svg+xml,${encodeURIComponent(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><circle cx="1" cy="1" r="1" fill="${fill}"/></svg>`,
+    )}`,
+});
+
+export const WithCustomEmoji: Story = {
+    // No visual baseline has been generated for this story yet
+    tags: ["!snapshot"],
+    args: {
+        recentEmojis: ["👍", "🎉"],
+        customEmojiCategories: [
+            {
+                id: "user",
+                name: "Your emoji",
+                emojis: [customEmoji("wave", "#0dbd8b"), customEmoji("heart", "#e0245e")],
+            },
+            {
+                id: "!space:example.org|",
+                name: "Cat Server",
+                emojis: [
+                    "#ff9f1c",
+                    "#ffbf69",
+                    "#2ec4b6",
+                    "#cbf3f0",
+                    "#5e60ce",
+                    "#7400b8",
+                    "#e63946",
+                    "#457b9d",
+                    "#1d3557",
+                ].map((fill, i) => customEmoji(`cat_${i + 1}`, fill)),
+            },
+        ],
     },
 };

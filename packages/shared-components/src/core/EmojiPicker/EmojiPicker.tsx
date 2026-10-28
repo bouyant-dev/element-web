@@ -47,13 +47,89 @@ const CATEGORY_CONFIG: Category[] = [
     { id: "flags", untranslatedName: _td("emoji|category_flags"), emoji: "🏁" },
 ];
 
+// Built-in category ids, or `custom:<id>` for a custom category.
 export type CategoryKey = keyof typeof DATA_BY_CATEGORY | "recent";
 
-export interface Category {
-    id: CategoryKey;
-    untranslatedName: TranslationKey;
-    // Emoji to show in the header for this category
-    emoji: string;
+export type Category =
+    | {
+          id: CategoryKey;
+          untranslatedName: TranslationKey;
+          // Emoji to show in the header for this category
+          emoji: string;
+      }
+    | {
+          id: CategoryKey;
+          // Literal name of a custom category, shown as given
+          name: string;
+          // Image to show in the header for this category
+          iconSrc?: string;
+          // The category's own emoji, rather than emojibase's
+          emojis: GridEmoji[];
+      };
+
+/**
+ * An emoji in the grid. Custom emoji are mapped onto the same shape, with their
+ * key as the unicode, so that filtering, selection and navigation treat them alike.
+ */
+export type GridEmoji = IEmoji & { custom?: PickerCustomEmoji };
+
+/**
+ * A custom (image) emoji, e.g. from a Matrix image pack.
+ */
+export interface PickerCustomEmoji {
+    /**
+     * Identity of the emoji, e.g. its mxc URL. Passed to {@link EmojiPickerProps.onChoose} as the
+     * unicode, and used to match it in `selectedEmojis` and `isEmojiDisabled`.
+     */
+    key: string;
+    /**
+     * Shortcode of the emoji, without colons.
+     */
+    shortcode: string;
+    /**
+     * URL of the image to display.
+     */
+    src: string;
+}
+
+/**
+ * A category of custom emoji, shown as its own tab and section.
+ */
+export interface PickerCustomEmojiCategory {
+    /**
+     * Unique id of the category.
+     */
+    id: string;
+    /**
+     * Name of the category, shown as given.
+     */
+    name: string;
+    /**
+     * URL of the image to show in the category's tab. Defaults to the first emoji's image.
+     */
+    iconSrc?: string;
+    /**
+     * The emoji in the category, in display order.
+     */
+    emojis: PickerCustomEmoji[];
+}
+
+/** Map a custom category onto the shape of the built-in ones. */
+function toCategory({ id, name, iconSrc, emojis }: PickerCustomEmojiCategory): Category {
+    return {
+        id: `custom:${id}`,
+        name,
+        iconSrc: iconSrc ?? emojis[0]?.src,
+        emojis: emojis.map((custom) => ({
+            unicode: custom.key,
+            // Unique per item, as the same image may be in a pack under several shortcodes
+            hexcode: `${custom.key}#${custom.shortcode}`,
+            label: custom.shortcode,
+            // Lower case like the built-in ones, which search ranking assumes; the shortcode is shown from `custom`
+            shortcodes: [custom.shortcode.toLowerCase()],
+            custom,
+        })),
+    };
 }
 
 /**
@@ -61,7 +137,7 @@ export interface Category {
  * emoji. Headers are interleaved with the rows so that they scroll inline with
  * the content rather than staying pinned to the top.
  */
-type ListItem = { type: "header"; category: Category } | { type: "row"; emojis: IEmoji[]; categoryId: CategoryKey };
+type ListItem = { type: "header"; category: Category } | { type: "row"; emojis: GridEmoji[]; categoryId: CategoryKey };
 
 // Stable component identities so Virtuoso does not remount its internals on re-render.
 // The single Virtuoso renders a flat list that mixes category headers and emoji rows.
@@ -89,20 +165,22 @@ export interface EmojiPickerProps {
     /**
      * Set of which emojis are already selected and should be decorated as such.
      * If specified, emoji will use a checkbox role with aria-checked set appropriately.
+     * Custom emoji are matched by their key.
      */
     selectedEmojis?: Set<string>;
     /**
-     * Called when the user chooses an emoji.
+     * Called when the user chooses an emoji. For a custom emoji, `unicode` is its key and
+     * `custom` is the emoji itself.
      *
      * Return `false` to prevent the emoji being recorded as recently used.
      */
-    onChoose: (unicode: string) => boolean;
+    onChoose: (unicode: string, custom?: PickerCustomEmoji) => boolean;
     /**
      * Called when the picker is done, e.g. an emoji was chosen with Enter.
      */
     onFinished: () => void;
     /**
-     * Returns whether the emoji with the given unicode should be disabled.
+     * Returns whether the emoji with the given unicode (the key, for a custom emoji) should be disabled.
      */
     isEmojiDisabled?: (unicode: string) => boolean;
     /**
@@ -112,9 +190,14 @@ export interface EmojiPickerProps {
     recentEmojis?: string[];
     /**
      * Called with the chosen emoji unicode when it should be recorded as
-     * recently used, i.e. when {@link onChoose} did not return `false`.
+     * recently used, i.e. when {@link onChoose} did not return `false`. Never called for
+     * custom emoji.
      */
     onRecordRecent?: (unicode: string) => void;
+    /**
+     * Categories of custom emoji, each shown as a tab and section after the recently used emoji.
+     */
+    customEmojiCategories?: PickerCustomEmojiCategory[];
     /**
      * Optional action resolver used to map keyboard events to roving actions,
      * e.g. to apply app-level custom keybindings.
@@ -199,9 +282,10 @@ export function EmojiPicker({
     onRecordRecent,
     getAction,
     showQuickReactions = true,
+    customEmojiCategories,
 }: EmojiPickerProps): React.ReactNode {
     const [filter, setFilter] = useState("");
-    const [previewEmoji, setPreviewEmoji] = useState<IEmoji | undefined>(undefined);
+    const [previewEmoji, setPreviewEmoji] = useState<GridEmoji | undefined>(undefined);
     // Track if user has interacted with arrow keys or search
     const [showHighlight, setShowHighlight] = useState(false);
     // The scroll container of the picker body, once mounted. The Virtuoso windows
@@ -213,16 +297,28 @@ export function EmojiPicker({
 
     const recentlyUsed = useMemo(() => resolveRecentEmojis(recentEmojis), [recentEmojis]);
 
+    // Custom categories go between the recently used emoji and the first built-in category.
+    const categories = useMemo<Category[]>(() => {
+        if (!customEmojiCategories?.length) return CATEGORY_CONFIG;
+        const [recent, ...builtIn] = CATEGORY_CONFIG;
+        return [recent, ...customEmojiCategories.map(toCategory), ...builtIn];
+    }, [customEmojiCategories]);
+    // The category to select when no other is: the first custom one, else people.
+    const fallbackCategory = categories.find((cat) => "emojis" in cat)?.id ?? "people";
+
     const lcFilter = filter.toLowerCase().trim(); // filter is case insensitive
 
     // Compute emoji to show in each category and which categories are enabled
     // (ie. non-empty) from the recently used list and the filter.
     const { dataByCategory, enabledCategories } = useMemo(() => {
-        const dataByCategory = {} as Record<CategoryKey, IEmoji[]>;
+        const dataByCategory = {} as Record<CategoryKey, GridEmoji[]>;
         const enabledCategories: CategoryKey[] = [];
 
-        for (const cat of CATEGORY_CONFIG) {
-            const emojis = filterEmojis(cat.id === "recent" ? recentlyUsed : DATA_BY_CATEGORY[cat.id], lcFilter);
+        for (const cat of categories) {
+            let source: GridEmoji[];
+            if ("emojis" in cat) source = cat.emojis;
+            else source = cat.id === "recent" ? recentlyUsed : DATA_BY_CATEGORY[cat.id];
+            const emojis = filterEmojis(source, lcFilter);
             dataByCategory[cat.id] = emojis;
             if (emojis.length > 0) {
                 enabledCategories.push(cat.id);
@@ -230,10 +326,10 @@ export function EmojiPicker({
         }
 
         return { dataByCategory, enabledCategories };
-    }, [lcFilter, recentlyUsed]);
+    }, [categories, lcFilter, recentlyUsed]);
 
     const [selectedCategory, setSelectedCategory] = useState<CategoryKey>(
-        recentlyUsed.length > 0 ? "recent" : "people",
+        recentlyUsed.length > 0 ? "recent" : fallbackCategory,
     );
 
     const collectScrollElement = useCallback((ref: HTMLDivElement | null): void => {
@@ -243,7 +339,7 @@ export function EmojiPicker({
     // Flatten into a list for virtuoso.
     const items = useMemo<ListItem[]>(() => {
         const flat: ListItem[] = [];
-        for (const cat of CATEGORY_CONFIG) {
+        for (const cat of categories) {
             const emojis = dataByCategory[cat.id];
             if (emojis.length === 0) continue;
             flat.push({ type: "header", category: cat });
@@ -252,7 +348,7 @@ export function EmojiPicker({
             }
         }
         return flat;
-    }, [dataByCategory]);
+    }, [categories, dataByCategory]);
 
     const onRangeChanged = useCallback(
         (range: ListRange): void => {
@@ -267,9 +363,9 @@ export function EmojiPicker({
                 visibleCategoryIds.add(item.type === "header" ? item.category.id : item.categoryId);
             }
 
-            setSelectedCategory(CATEGORY_CONFIG.find((cat) => visibleCategoryIds.has(cat.id))?.id ?? "people");
+            setSelectedCategory(categories.find((cat) => visibleCategoryIds.has(cat.id))?.id ?? fallbackCategory);
         },
-        [items],
+        [items, categories, fallbackCategory],
     );
 
     // Given a roving emoji button returns the role=gridcell element containing it
@@ -361,7 +457,7 @@ export function EmojiPicker({
         onFinished();
     }, [showHighlight, scrollElement, onFinished]);
 
-    const onHoverEmoji = useCallback((emoji: IEmoji): void => {
+    const onHoverEmoji = useCallback((emoji: GridEmoji): void => {
         setPreviewEmoji(emoji);
     }, []);
 
@@ -370,8 +466,11 @@ export function EmojiPicker({
     }, []);
 
     const onClickEmoji = useCallback(
-        (ev: ButtonEvent, emoji: IEmoji): void => {
-            if (onChoose(emoji.unicode) !== false) {
+        (ev: ButtonEvent, emoji: GridEmoji): void => {
+            if (emoji.custom) {
+                // Never recorded as recent: the recently used emoji are unicode only.
+                onChoose(emoji.unicode, emoji.custom);
+            } else if (onChoose(emoji.unicode) !== false) {
                 onRecordRecent?.(emoji.unicode);
             }
             if ((ev as React.KeyboardEvent).key === "Enter") {
@@ -396,7 +495,7 @@ export function EmojiPicker({
                 return (
                     <div className={styles.category} data-category-id={category.id} role="gridcell">
                         <Heading as="h2" className={styles.categoryLabel}>
-                            {_t(category.untranslatedName)}
+                            {"name" in category ? category.name : _t(category.untranslatedName)}
                         </Heading>
                     </div>
                 );
@@ -440,7 +539,7 @@ export function EmojiPicker({
                     aria-label={_t("emoji_picker|emoji_picker")}
                 >
                     <Tabs
-                        categories={CATEGORY_CONFIG}
+                        categories={categories}
                         enabledCategories={enabledCategories}
                         selectedCategory={selectedCategory}
                         onAnchorClick={scrollToCategory}

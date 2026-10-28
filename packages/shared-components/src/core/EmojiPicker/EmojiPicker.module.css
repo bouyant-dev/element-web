@@ -26,6 +26,10 @@
 .header {
     padding: var(--cpd-space-1x) var(--cpd-space-2x) 0;
     border-bottom: 1px solid var(--cpd-color-gray-400);
+    /* The built-in tabs fill the width exactly; any custom category tabs scroll rather than wrap */
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
 }
 
 .anchor {
@@ -62,6 +66,11 @@
     &:not(:disabled):hover {
         background-color: var(--cpd-color-bg-subtle-primary);
         border-bottom: 2px solid var(--cpd-color-text-action-accent);
+    }
+
+    /* Inside the tab, as the scrolling header would clip the bottom of a ring drawn outside it */
+    &:focus-visible {
+        outline-offset: -2px;
     }
 }
 
@@ -170,6 +179,29 @@
     color: rgb(0, 0, 0, 0.5);
     border: 1px solid var(--cpd-color-text-action-accent);
     padding: var(--cpd-space-1x);
+}
+
+/* The image of a custom emoji, in place of an emoji glyph */
+.customEmoji {
+    /* inline-block and hidden overflow keep a failed image to its box instead of spilling its alt text */
+    display: inline-block;
+    overflow: hidden;
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    /* Keep the line, and so the cell or tab, the same height as for an emoji glyph */
+    vertical-align: top;
+}
+
+.anchor .customEmoji,
+.previewEmoji .customEmoji {
+    width: 1em;
+    height: 1em;
+}
+
+/* Custom shortcodes can be long and have no spaces to break at */
+.customPreviewName {
+    overflow-wrap: anywhere;
 }
 
 .categoryLabel,

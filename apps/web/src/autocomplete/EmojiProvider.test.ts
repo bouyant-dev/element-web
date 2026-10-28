@@ -8,12 +8,16 @@ Please see LICENSE files in the repository root for full details.
 
 // @vitest-environment happy-dom
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { stubClient, mkStubRoom } from "test-utils";
 
 import EmojiProvider from "./EmojiProvider";
 import { add } from "../emojipicker/recent";
 import { MatrixClientPeg } from "../MatrixClientPeg";
+import { type ICompletion } from "./Autocompleter";
+import { availableEmojiPacks } from "../hooks/useCustomEmojiPacks";
+
+vi.mock("../hooks/useCustomEmojiPacks", () => ({ availableEmojiPacks: vi.fn().mockReturnValue([]) }));
 
 const EMOJI_SHORTCODES = [
     ":+1",
@@ -93,5 +97,86 @@ describe("EmojiProvider", function () {
         expect((completionsList[0]?.component?.props as CompletionComponentProps).title).toEqual(":heart:");
         expect((completionsList[1]?.component?.props as CompletionComponentProps).title).toEqual(":heartpulse:");
         expect((completionsList[2]?.component?.props as CompletionComponentProps).title).toEqual(":heart_eyes:");
+    });
+
+    describe("custom emoji", () => {
+        const emojis = (...shortcodes: string[]) =>
+            shortcodes.map((shortcode) => ({ shortcode, url: `mxc://hs.tld/${shortcode}` }));
+
+        const custom = (completions: ICompletion[]): string[] =>
+            completions.filter((c) => c.type === "custom-emoji").map((c) => c.completion);
+
+        it("put an exact custom match first, other custom matches after the exact unicode one, once per image", async () => {
+            vi.mocked(availableEmojiPacks).mockReturnValueOnce([
+                { id: "user", kind: "user", name: "Your emoji", emojis: emojis("heart", "heartcat") },
+                { id: "!a:hs.tld|", kind: "room", name: "A", emojis: emojis("heart", "other") },
+            ]);
+            const ep = new EmojiProvider(testRoom);
+            const completions = await ep.getCompletions(":heart", { beginning: true, start: 0, end: 6 });
+
+            expect(availableEmojiPacks).toHaveBeenCalledWith(MatrixClientPeg.safeGet(), testRoom);
+            const exactIndex = completions.findIndex((c) => c.completion === "❤️");
+            expect(completions[0]).toMatchObject({
+                type: "custom-emoji",
+                completion: ":heart:",
+                completionId: "mxc://hs.tld/heart",
+            });
+            expect(completions[exactIndex + 1]).toMatchObject({ completion: ":heartcat:" });
+            expect(custom(completions)).toEqual([":heart:", ":heartcat:"]);
+            expect((completions[0].component.props as CompletionComponentProps).title).toEqual(":heart:");
+        });
+
+        it("never put a custom prefix match before an exact unicode match", async () => {
+            vi.mocked(availableEmojiPacks).mockReturnValueOnce([
+                { id: "user", kind: "user", name: "Your emoji", emojis: emojis("thumbsup_party") },
+            ]);
+            const ep = new EmojiProvider(testRoom);
+            const completions = await ep.getCompletions(":thumbsup", { beginning: true, start: 0, end: 9 });
+
+            expect(completions[0].completion).toContain("👍");
+            expect(custom(completions)).toEqual([":thumbsup_party:"]);
+        });
+
+        it("offer an exact match before longer shortcodes from earlier packs", async () => {
+            const shortcodes = Array.from({ length: 9 }, (_, i) => `blob_${i}`);
+            vi.mocked(availableEmojiPacks).mockReturnValueOnce([
+                { id: "user", kind: "user", name: "Your emoji", emojis: emojis(...shortcodes) },
+                { id: "!a:hs.tld|", kind: "room", name: "A", emojis: emojis("blob") },
+            ]);
+            const ep = new EmojiProvider(testRoom);
+            const completions = await ep.getCompletions(":blob", { beginning: true, start: 0, end: 5 });
+
+            expect(custom(completions)[0]).toBe(":blob:");
+            expect(completions[0].completion).toBe(":blob:");
+        });
+
+        it("match shortcodes with punctuation and accents", async () => {
+            vi.mocked(availableEmojiPacks).mockReturnValue([
+                { id: "user", kind: "user", name: "Your emoji", emojis: emojis("pepe.happy", "café") },
+            ]);
+            const ep = new EmojiProvider(testRoom);
+
+            expect(custom(await ep.getCompletions(":pepe.h", { beginning: true, start: 0, end: 7 }))).toEqual([
+                ":pepe.happy:",
+            ]);
+            expect(custom(await ep.getCompletions(":café", { beginning: true, start: 0, end: 5 }))).toEqual([":café:"]);
+            vi.mocked(availableEmojiPacks).mockReturnValue([]);
+        });
+
+        it("do not make unicode emoji names searchable by punctuation", async () => {
+            const ep = new EmojiProvider(testRoom);
+            expect(await ep.getCompletions("lol :P,", { beginning: true, start: 7, end: 7 })).toEqual([]);
+        });
+
+        it("are limited to eight suggestions", async () => {
+            const shortcodes = Array.from({ length: 10 }, (_, i) => `blob${i}`);
+            vi.mocked(availableEmojiPacks).mockReturnValueOnce([
+                { id: "user", kind: "user", name: "Your emoji", emojis: emojis(...shortcodes) },
+            ]);
+            const ep = new EmojiProvider(testRoom);
+            const completions = await ep.getCompletions(":blob", { beginning: true, start: 0, end: 5 });
+
+            expect(completions.filter((c) => c.type === "custom-emoji")).toHaveLength(8);
+        });
     });
 });

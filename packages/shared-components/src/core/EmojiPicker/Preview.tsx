@@ -8,16 +8,17 @@
  */
 
 import React from "react";
-import { type Emoji } from "@matrix-org/emojibase-bindings";
 import classNames from "classnames";
 
+import { type GridEmoji } from "./EmojiPicker";
+import { CustomEmojiImage } from "./Emoji";
 import styles from "./EmojiPicker.module.css";
 
 interface IProps {
     /**
      * The emoji to preview.
      */
-    emoji: Emoji;
+    emoji: GridEmoji;
 }
 
 /**
@@ -28,14 +29,26 @@ export const Preview: React.FC<IProps> = ({ emoji }) => {
         unicode,
         label,
         shortcodes: [shortcode],
+        custom,
     } = emoji;
 
     return (
         <div className={styles.footer}>
-            <div className={styles.previewEmoji}>{unicode}</div>
+            <div className={styles.previewEmoji}>
+                {custom ? <CustomEmojiImage shortcode={custom.shortcode} src={custom.src} /> : unicode}
+            </div>
             <div className={styles.previewText}>
-                <div className={classNames(styles.name, styles.previewName)}>{label}</div>
-                <div className={styles.shortcode}>{shortcode}</div>
+                {custom ? (
+                    // A custom emoji has no name other than its shortcode
+                    <div className={classNames(styles.previewName, styles.customPreviewName)}>
+                        {`:${custom.shortcode}:`}
+                    </div>
+                ) : (
+                    <>
+                        <div className={classNames(styles.name, styles.previewName)}>{label}</div>
+                        <div className={styles.shortcode}>{shortcode}</div>
+                    </>
+                )}
             </div>
         </div>
     );

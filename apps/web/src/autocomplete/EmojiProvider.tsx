@@ -11,9 +11,9 @@ Please see LICENSE files in the repository root for full details.
 */
 
 import React from "react";
-import { uniq, sortBy, uniqBy, type ListIteratee } from "lodash";
+import { uniq, sortBy, uniqBy, partition, type ListIteratee } from "lodash";
 import EMOTICON_REGEX from "emojibase-regex/emoticon";
-import { type Room } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 import { EMOJI, type Emoji, getEmojiFromUnicode } from "@matrix-org/emojibase-bindings";
 
 import { _t } from "../languageHandler";
@@ -25,12 +25,19 @@ import SettingsStore from "../settings/SettingsStore";
 import { type TimelineRenderingType } from "../contexts/RoomContext";
 import * as recent from "../emojipicker/recent";
 import { filterBoolean } from "../utils/arrays";
+import { MatrixClientPeg } from "../MatrixClientPeg";
+import { mediaFromMxc } from "../customisations/Media";
+import { availableEmojiPacks } from "../hooks/useCustomEmojiPacks";
+import { type CustomEmoji } from "../utils/matcha/imagePacks";
 
 const LIMIT = 20;
+const CUSTOM_LIMIT = 8;
 
 // Match for ascii-style ";-)" emoticons or ":wink:" shortcodes provided by emojibase
 // anchored to only match from the start of parts otherwise it'll show emoji suggestions whilst typing matrix IDs
-const EMOJI_REGEX = new RegExp("(" + EMOTICON_REGEX.source + "|(?:^|\\s):[+-\\w]*:?)$", "g");
+const UNICODE_EMOJI_REGEX = new RegExp("(" + EMOTICON_REGEX.source + "|(?:^|\\s):[+-\\w]*:?)$");
+// Custom emoji shortcodes may hold anything but whitespace and colons, such as "pepe.happy" or "café".
+const EMOJI_REGEX = new RegExp("(" + EMOTICON_REGEX.source + "|(?:^|\\s):[^\\s:]*:?)$", "g");
 
 interface ISortedEmoji {
     emoji: Emoji;
@@ -72,8 +79,13 @@ export default class EmojiProvider extends AutocompleteProvider {
     public matcher: QueryMatcher<ISortedEmoji>;
     public nameMatcher: QueryMatcher<ISortedEmoji>;
     private readonly recentlyUsed: Emoji[];
+    // Rebuilt only when the packs' emoji lists change.
+    private customMatcher?: { lists: CustomEmoji[][]; matcher: QueryMatcher<CustomEmoji> };
 
-    public constructor(room: Room, renderingType?: TimelineRenderingType) {
+    public constructor(
+        private readonly room: Room,
+        renderingType?: TimelineRenderingType,
+    ) {
         super({ commandRegex: EMOJI_REGEX, renderingType });
         this.matcher = new QueryMatcher<ISortedEmoji>(SORTED_EMOJI, {
             keys: [],
@@ -107,8 +119,11 @@ export default class EmojiProvider extends AutocompleteProvider {
             const matchedString = command[0];
             completions = this.matcher.match(matchedString, limit);
 
-            // Do second match with shouldMatchWordsOnly in order to match against 'name'
-            completions = completions.concat(this.nameMatcher.match(matchedString));
+            // Do second match with shouldMatchWordsOnly in order to match against 'name', but not for queries only
+            // custom shortcodes allow: it ignores punctuation, so ":P," would look for "p".
+            if (UNICODE_EMOJI_REGEX.exec(matchedString)?.[0] === matchedString) {
+                completions = completions.concat(this.nameMatcher.match(matchedString));
+            }
 
             const sorters: ListIteratee<ISortedEmoji>[] = [];
             // make sure that emoticons come first
@@ -154,7 +169,7 @@ export default class EmojiProvider extends AutocompleteProvider {
             completions = recentlyUsedAutocomplete.concat(completions);
             completions = uniqBy(completions, "emoji");
 
-            return completions.map((c) => ({
+            const unicode = completions.map((c) => ({
                 completion: c.emoji.unicode,
                 component: (
                     <PillCompletion title={`:${c.emoji.shortcodes[0]}:`} aria-label={c.emoji.unicode}>
@@ -163,8 +178,62 @@ export default class EmojiProvider extends AutocompleteProvider {
                 ),
                 range: range!,
             }));
+
+            const client = MatrixClientPeg.safeGet();
+            const isExact = (shortcode: string): boolean => shortcode.toLowerCase() === trimmedMatch.toLowerCase();
+            const unicodeExactIndex = completions.findIndex((c) => c.emoji.shortcodes.some(isExact));
+            const [customExact, customOther] = partition(this.getCustomEmoji(client, matchedString, isExact), (e) =>
+                isExact(e.shortcode),
+            );
+            const toCustom = ({ shortcode, url }: CustomEmoji): ICompletion => ({
+                type: "custom-emoji",
+                completion: `:${shortcode}:`,
+                completionId: url,
+                component: (
+                    <PillCompletion title={`:${shortcode}:`} aria-label={`:${shortcode}:`}>
+                        <img
+                            src={mediaFromMxc(url, client).srcHttp ?? undefined}
+                            alt={`:${shortcode}:`}
+                            style={{ width: "1.5em", height: "1.5em", objectFit: "contain" }}
+                        />
+                    </PillCompletion>
+                ),
+                range: range!,
+            });
+            // Exact custom matches come first and other custom matches next, but never ahead of an exact unicode match.
+            return [
+                ...customExact.map(toCustom),
+                ...unicode.slice(0, unicodeExactIndex + 1),
+                ...customOther.map(toCustom),
+                ...unicode.slice(unicodeExactIndex + 1),
+            ];
         }
         return [];
+    }
+
+    /** Custom emoji usable in the room whose ":shortcode:" matches: exact matches, then shorter shortcodes first. */
+    private getCustomEmoji(
+        client: MatrixClient,
+        matchedString: string,
+        isExact: (shortcode: string) => boolean,
+    ): CustomEmoji[] {
+        const lists = availableEmojiPacks(client, this.room).map((pack) => pack.emojis);
+        if (!lists.length) return [];
+        const cached = this.customMatcher;
+        if (!cached || cached.lists.length !== lists.length || lists.some((list, i) => list !== cached.lists[i])) {
+            const matcher = new QueryMatcher<CustomEmoji>(lists.flat(), {
+                keys: [],
+                funcs: [(emoji) => `:${emoji.shortcode}:`],
+                shouldMatchWordsOnly: false,
+            });
+            this.customMatcher = { lists, matcher };
+        }
+        const matches = sortBy(this.customMatcher!.matcher.match(matchedString), [
+            (e) => (isExact(e.shortcode) ? 0 : 1),
+            (e) => e.shortcode.length,
+        ]);
+        // the same image can be in several packs
+        return uniqBy(matches, "url").slice(0, CUSTOM_LIMIT);
     }
 
     public getName(): string {

@@ -19,6 +19,8 @@ import defaultDispatcher from "../dispatcher/dispatcher";
 import { Action } from "../dispatcher/actions";
 import SettingsStore from "../settings/SettingsStore";
 import { getFirstGrapheme, graphemeSegmenter } from "../utils/strings";
+import { mediaFromMxc } from "../customisations/Media";
+import { parseEmojiImages } from "../utils/matcha/imagePacks";
 
 const REGIONAL_EMOJI_SEPARATOR = String.fromCodePoint(0x200b);
 
@@ -28,7 +30,7 @@ interface ISerializedPart {
 }
 
 interface ISerializedPillPart {
-    type: Type.AtRoomPill | Type.RoomPill | Type.UserPill;
+    type: Type.AtRoomPill | Type.RoomPill | Type.UserPill | Type.CustomEmoji;
     text: string;
     resourceId?: string;
 }
@@ -44,6 +46,7 @@ export enum Type {
     RoomPill = "room-pill",
     AtRoomPill = "at-room-pill",
     PillCandidate = "pill-candidate",
+    CustomEmoji = "custom-emoji",
 }
 
 interface IBasePart {
@@ -72,7 +75,7 @@ interface IPillCandidatePart extends Omit<IBasePart, "type" | "createAutoComplet
 }
 
 interface IPillPart extends Omit<IBasePart, "type" | "resourceId"> {
-    type: Type.AtRoomPill | Type.RoomPill | Type.UserPill;
+    type: Type.AtRoomPill | Type.RoomPill | Type.UserPill | Type.CustomEmoji;
     resourceId: string;
 }
 
@@ -292,7 +295,9 @@ export abstract class PillPart extends BasePart implements IPillPart {
             node.nodeType === Node.ELEMENT_NODE &&
             node.nodeName === "SPAN" &&
             node.childNodes.length === 1 &&
-            node.childNodes[0].nodeType === Node.TEXT_NODE
+            node.childNodes[0].nodeType === Node.TEXT_NODE &&
+            // pills and custom emoji set different attributes and handlers, so never reuse one's node for the other
+            node.classList.contains("mx_CustomEmoji") === (this.type === Type.CustomEmoji)
         );
     }
 
@@ -505,6 +510,32 @@ class UserPillPart extends PillPart {
     };
 }
 
+/** An inline custom emoji: its text is the ":shortcode:" and its resource ID the mxc URL of the image. */
+class CustomEmojiPart extends PillPart {
+    public constructor(
+        url: string,
+        shortcode: string,
+        private client: MatrixClient,
+    ) {
+        super(url, shortcode);
+    }
+
+    public get type(): IPillPart["type"] {
+        return Type.CustomEmoji;
+    }
+
+    protected get className(): string {
+        return "mx_CustomEmoji";
+    }
+
+    // CSS draws the image, so the node keeps the single text node the caret code counts.
+    protected setAvatar(node: HTMLElement): void {
+        node.setAttribute("title", this.text);
+        const src = mediaFromMxc(this.resourceId, this.client).srcHttp;
+        if (src) this.setAvatarVars(node, src, "");
+    }
+}
+
 class PillCandidatePart extends PlainBasePart implements IPillCandidatePart {
     public constructor(
         text: string,
@@ -606,6 +637,12 @@ export class PartCreator {
                 return part.resourceId ? this.roomPill(part.resourceId) : undefined;
             case Type.UserPill:
                 return part.resourceId ? this.userPill(part.text, part.resourceId) : undefined;
+            case Type.CustomEmoji: {
+                // Drafts and pasted composer content come from outside: an emoji no pack could hold stays text.
+                const shortcode = part.text.replace(/^:|:$/g, "");
+                const [emoji] = parseEmojiImages({ images: { [shortcode]: { url: part.resourceId } } });
+                return emoji ? this.customEmoji(part.text, emoji.url) : this.plain(part.text);
+            }
         }
     }
 
@@ -644,6 +681,15 @@ export class PartCreator {
     public userPill(displayName: string, userId: string): UserPillPart {
         const member = this.room.getMember(userId);
         return new UserPillPart(userId, displayName, member || undefined);
+    }
+
+    /**
+     * A custom emoji.
+     * @param shortcode - The shortcode with its colons, e.g. ":blob:".
+     * @param url - The mxc URL of the image.
+     */
+    public customEmoji(shortcode: string, url: string): CustomEmojiPart {
+        return new CustomEmojiPart(url, shortcode, this.client);
     }
 
     private static isRegionalIndicator(c: string): boolean {

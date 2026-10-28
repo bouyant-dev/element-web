@@ -11,7 +11,7 @@ Please see LICENSE files in the repository root for full details.
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import EditorModel from "./model";
-import { htmlSerializeFromMdIfNeeded, htmlSerializeIfNeeded } from "./serialize";
+import { htmlSerializeFromMdIfNeeded, htmlSerializeIfNeeded, textSerialize } from "./serialize";
 import { createPartCreator } from "./__mocks__";
 import { type IConfigOptions } from "../IConfigOptions";
 import SettingsStore from "../settings/SettingsStore";
@@ -171,6 +171,108 @@ describe("editor/serialize", function () {
         });
     });
 
+    describe("custom emoji", () => {
+        const blob = '<img data-mx-emoticon="" src="mxc://hs.tld/blob" alt=":blob:" title=":blob:" height="32">';
+
+        it("are sent as images inline with text", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [pc.plain("hi "), pc.customEmoji(":blob:", "mxc://hs.tld/blob"), pc.plain(" there")],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, {})).toBe(`hi ${blob} there`);
+            expect(textSerialize(model)).toBe("hi :blob: there");
+        });
+
+        it("are sent as HTML when alone", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel([pc.customEmoji(":blob:", "mxc://hs.tld/blob")], pc);
+            expect(htmlSerializeIfNeeded(model, {})).toBe(blob);
+            expect(textSerialize(model)).toBe(":blob:");
+        });
+
+        it("keep their order", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [pc.customEmoji(":a:", "mxc://hs.tld/a"), pc.plain(" "), pc.customEmoji(":b:", "mxc://hs.tld/b")],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, {})).toBe(
+                '<img data-mx-emoticon="" src="mxc://hs.tld/a" alt=":a:" title=":a:" height="32"> ' +
+                    '<img data-mx-emoticon="" src="mxc://hs.tld/b" alt=":b:" title=":b:" height="32">',
+            );
+        });
+
+        it("do not stop markdown on the following lines", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [pc.customEmoji(":blob:", "mxc://hs.tld/blob"), pc.newline(), pc.plain("**bold** <b>")],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, {})).toBe(`${blob}<br><strong>bold</strong> &lt;b&gt;`);
+        });
+
+        it("become their shortcode inside inline code", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [pc.plain("`x "), pc.customEmoji(":blob:", "mxc://hs.tld/blob"), pc.plain("` y")],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, {})).toBe("<code>x :blob:</code> y");
+        });
+
+        it("become their shortcode inside code blocks", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [
+                    pc.plain("```"),
+                    pc.newline(),
+                    pc.customEmoji(":blob:", "mxc://hs.tld/blob"),
+                    pc.newline(),
+                    pc.plain("```"),
+                ],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, {})).toBe("<pre><code>:blob:\n</code></pre>\n");
+        });
+
+        it("become their shortcode in link targets and image alt text", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [
+                    pc.plain("[x](https://a.b/"),
+                    pc.customEmoji(":blob:", "mxc://hs.tld/blob"),
+                    pc.plain(") ![a "),
+                    pc.customEmoji(":blob:", "mxc://hs.tld/blob"),
+                    pc.plain("](https://a.b/c.png)"),
+                ],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, {})).toBe(
+                '<a href="https://a.b/:blob:">x</a> <img src="https://a.b/c.png" alt="a :blob:">',
+            );
+        });
+
+        it("leave no placeholder for an unknown emoji", () => {
+            const md = "a \u20451\u2046 [b](https://a.b/\u20451\u2046) `\u20450\u2046`";
+            const emoticons = [{ resourceId: "mxc://hs.tld/blob", text: ":blob:" }];
+            expect(htmlSerializeFromMdIfNeeded(md, { emoticons })).toBe(
+                'a  <a href="https://a.b/">b</a> <code>:blob:</code>',
+            );
+        });
+
+        it("are sent as images without markdown", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [pc.plain("a < "), pc.customEmoji(":blob:", "mxc://hs.tld/blob"), pc.newline(), pc.plain("*b*")],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, { useMarkdown: false })).toBe(
+                'a &lt; <img data-mx-emoticon src="mxc://hs.tld/blob" alt=":blob:" title=":blob:" height="32" /><br/>*b*',
+            );
+        });
+    });
+
     describe("feature_latex_maths", () => {
         beforeEach(() => {
             vi.spyOn(SettingsStore, "getValue").mockImplementation((feature) => feature === "feature_latex_maths");
@@ -193,6 +295,17 @@ describe("editor/serialize", function () {
                 <p>world</p>
                 "
             `);
+        });
+
+        it("puts custom emoji in maths back as their shortcode", () => {
+            const pc = createPartCreator();
+            const model = new EditorModel(
+                [pc.plain("hello $x "), pc.customEmoji(":blob:", "mxc://hs.tld/blob"), pc.plain("$ world")],
+                pc,
+            );
+            expect(htmlSerializeIfNeeded(model, {})).toBe(
+                'hello <span data-mx-maths="x :blob:"><code>x :blob:</code></span> world',
+            );
         });
 
         it("should not mangle code blocks", () => {

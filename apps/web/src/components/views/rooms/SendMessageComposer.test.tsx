@@ -9,7 +9,7 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, waitFor } from "test-utils-rtl";
 import { type MatrixClient, MsgType } from "matrix-js-sdk/src/matrix";
 import userEvent from "@testing-library/user-event";
@@ -33,6 +33,7 @@ import { MessageComposerUrlPreviewViewModel } from "../../../viewmodels/composer
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { UrlPreviewApi } from "../../../modules/UrlPreviewApi.ts";
 import { attachUrlPreviews } from "../../../utils/messages";
+import { availableEmojiPacks } from "../../../hooks/useCustomEmojiPacks";
 
 vi.mock("../../../utils/local-room", () => ({
     doMaybeLocalRoomAction: vi.fn(),
@@ -43,6 +44,11 @@ vi.mock("../../../utils/local-room", () => ({
 vi.mock("../../../utils/messages", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../../../utils/messages")>();
     return { ...actual, attachUrlPreviews: vi.fn(actual.attachUrlPreviews) };
+});
+
+vi.mock("../../../hooks/useCustomEmojiPacks", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../../../hooks/useCustomEmojiPacks")>();
+    return { ...actual, availableEmojiPacks: vi.fn().mockReturnValue([]) };
 });
 
 describe("<SendMessageComposer/>", () => {
@@ -369,6 +375,75 @@ describe("<SendMessageComposer/>", () => {
             );
         });
 
+        describe("custom emoji", () => {
+            const packs = [
+                {
+                    id: "user",
+                    kind: "user" as const,
+                    name: "Yours",
+                    emojis: [{ shortcode: "blob", url: "mxc://hs.tld/blob" }],
+                },
+            ];
+            beforeEach(() => {
+                vi.mocked(availableEmojiPacks).mockReturnValue(packs);
+                vi.mocked(doMaybeLocalRoomAction).mockImplementation(
+                    <T,>(roomId: string, fn: (actualRoomId: string) => Promise<T>, _client?: MatrixClient) => {
+                        return fn(roomId);
+                    },
+                );
+            });
+            afterEach(() => {
+                vi.mocked(availableEmojiPacks).mockReturnValue([]);
+            });
+
+            it("sends a fully typed shortcode as the emoji", async () => {
+                const { container } = getComponent();
+
+                addTextToComposer(container, "hi :blob:");
+                fireEvent.keyDown(container.querySelector(".mx_SendMessageComposer")!, { key: "Enter" });
+
+                await waitFor(() =>
+                    expect(mockClient.sendMessage).toHaveBeenCalledWith(
+                        "myfakeroom",
+                        null,
+                        expect.objectContaining({
+                            body: "hi :blob:",
+                            format: "org.matrix.custom.html",
+                            formatted_body:
+                                'hi <img data-mx-emoticon="" src="mxc://hs.tld/blob" alt=":blob:" title=":blob:" height="32">',
+                        }),
+                    ),
+                );
+                expect(availableEmojiPacks).toHaveBeenCalledWith(mockClient, mockRoom);
+            });
+
+            it("reacts to the last message with +:shortcode:", async () => {
+                vi.spyOn(MatrixClientPeg, "safeGet").mockReturnValue(mockClient);
+                mockRoom.relations = { getChildEventsForEvent: vi.fn() };
+                const liveTimeline = { getEvents: () => [mockEvent] } as unknown as RoomContextType["liveTimeline"];
+                const { container } = getComponent({}, { ...defaultRoomContext, liveTimeline });
+
+                addTextToComposer(container, "+:blob:");
+                fireEvent.keyDown(container.querySelector(".mx_SendMessageComposer")!, { key: "Enter" });
+
+                await waitFor(() =>
+                    expect(mockClient.sendEvent).toHaveBeenCalledWith("myfakeroom", "m.reaction", {
+                        "m.relates_to": {
+                            rel_type: "m.annotation",
+                            event_id: mockEvent.getId(),
+                            key: "mxc://hs.tld/blob",
+                        },
+                        "com.beeper.reaction.shortcode": ":blob:",
+                    }),
+                );
+                expect(mockClient.sendMessage).not.toHaveBeenCalledWith(
+                    "myfakeroom",
+                    null,
+                    expect.objectContaining({ body: "+:blob:" }),
+                );
+            });
+        });
+
         it("correctly sends a reply using a slash command", async () => {
             stubClient();
             vi.mocked(doMaybeLocalRoomAction).mockImplementation(
@@ -486,6 +561,16 @@ describe("<SendMessageComposer/>", () => {
             const isReaction = isQuickReaction(model);
 
             expect(isReaction).toBeTruthy();
+        });
+
+        it("detects quick reactions with a custom emoji", () => {
+            const pc = createPartCreator();
+            const emoji = () => pc.customEmoji(":blob:", "mxc://hs.tld/blob");
+
+            expect(isQuickReaction(new EditorModel([pc.pillCandidate("+"), emoji()], pc))).toBe(true);
+            expect(isQuickReaction(new EditorModel([pc.pillCandidate("+ "), emoji()], pc))).toBe(true);
+            expect(isQuickReaction(new EditorModel([pc.pillCandidate("+x"), emoji()], pc))).toBe(false);
+            expect(isQuickReaction(new EditorModel([pc.pillCandidate("+"), emoji(), pc.plain(" hi")], pc))).toBe(false);
         });
 
         it("correctly rejects quick reaction with extra text", () => {

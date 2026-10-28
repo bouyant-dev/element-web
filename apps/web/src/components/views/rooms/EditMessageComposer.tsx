@@ -46,6 +46,8 @@ import type DocumentOffset from "../../../editor/offset";
 import { attachMentions, attachRelation } from "../../../utils/messages";
 import { filterBoolean } from "../../../utils/arrays";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
+import { replaceTypedCustomEmoji } from "../../../editor/customEmoji";
+import { availableEmojiPacks } from "../../../hooks/useCustomEmojiPacks";
 
 // exported for tests
 export function createEditContent(
@@ -304,6 +306,12 @@ class EditMessageComposer extends React.Component<IEditMessageComposerProps, ISt
             const position = this.model.positionForOffset(caret.offset, caret.atNodeEnd);
             this.editorRef.current.replaceEmoticon(position, REGEX_EMOTICON);
         }
+        // Fully typed ":shortcode:"s of custom emoji become the emoji; there are no packs unless the beta is on.
+        replaceTypedCustomEmoji(
+            this.model,
+            availableEmojiPacks(this.props.mxClient, this.getRoom()),
+            this.editorRef.current?.getCaret(),
+        );
         const editContent = createEditContent(this.model, editedEvent, this.replyToEvent);
         const newContent = editContent["m.new_content"]!;
 
@@ -461,6 +469,8 @@ class EditMessageComposer extends React.Component<IEditMessageComposerProps, ISt
                 this.editorRef.current?.insertMention(payload.userId);
             } else if (payload.event) {
                 this.editorRef.current?.insertQuotedMessage(payload.event);
+            } else if (payload.customEmoji) {
+                this.editorRef.current?.insertCustomEmoji(payload.customEmoji.url, payload.customEmoji.shortcode);
             } else if (payload.text) {
                 this.editorRef.current?.insertPlaintext(payload.text);
             }

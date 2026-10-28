@@ -934,4 +934,20 @@ export default class BasicMessageEditor extends React.Component<IProps, IState> 
             return model.positionForOffset(caret.offset + addedLen, true);
         });
     }
+
+    /**
+     * Inserts a custom emoji at the caret.
+     * @param url - The mxc URL of the image.
+     * @param shortcode - The shortcode, without colons.
+     */
+    public insertCustomEmoji(url: string, shortcode: string): void {
+        this.modifiedFlag = true;
+        const { model } = this.props;
+        const caret = this.getCaret();
+        const position = model.positionForOffset(caret.offset, caret.atNodeEnd);
+        void model.transform(() => {
+            const addedLen = model.insert([model.partCreator.customEmoji(`:${shortcode}:`, url)], position);
+            return model.positionForOffset(caret.offset + addedLen, true);
+        });
+    }
 }
