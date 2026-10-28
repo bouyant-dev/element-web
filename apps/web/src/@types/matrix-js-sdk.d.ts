@@ -16,6 +16,7 @@ import type { DeviceClientInformation } from "../utils/device/types.ts";
 import type { UserWidget } from "../utils/WidgetUtils-types.ts";
 import { type MediaPreviewConfig } from "./media_preview.ts";
 import { type INVITE_RULES_ACCOUNT_DATA_TYPE, type InviteConfigAccountData } from "./invite-rules.ts";
+import type { EmoteRoomsContent, ImagePackContent } from "../utils/matcha/imagePacks.ts";
 
 // Extend Matrix JS SDK types via Typescript declaration merging to support unspecced event fields and types
 declare module "matrix-js-sdk/src/types" {
@@ -36,6 +37,8 @@ declare module "matrix-js-sdk/src/types" {
     export interface StateEvents {
         "com.matchahoneylatte.thread_archive": { archived: boolean };
         "com.matchahoneylatte.kanban": { version: 1; event_id: string };
+        // MSC2545 room and Space image packs (custom emoji)
+        "im.ponies.room_emotes": ImagePackContent;
         // Jitsi-backed video room state events
         [JitsiCallMemberEventType]: JitsiCallMemberContent;
 
@@ -93,6 +96,9 @@ declare module "matrix-js-sdk/src/types" {
         };
     }
     export interface AccountDataEvents {
+        // MSC2545 personal image pack and packs enabled everywhere (custom emoji)
+        "im.ponies.user_emotes": ImagePackContent;
+        "im.ponies.emote_rooms": EmoteRoomsContent;
         // Analytics account data event
         "im.vector.analytics": {
             id: string;
