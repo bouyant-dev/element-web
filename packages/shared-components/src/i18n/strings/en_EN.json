@@ -253,6 +253,16 @@
         "setting_up": "Setting up encrypted Docs…",
         "title": "Encrypted Docs for %(space)s"
     },
+    "matcha_stickers": {
+        "add": "Add stickers",
+        "empty_description": "Add stickers to your own pack or a room's pack in Settings, then send them from here.",
+        "empty_title": "No stickers yet",
+        "manage": "Manage stickers",
+        "no_results": "No stickers match “%(query)s”",
+        "packs_label": "Sticker packs",
+        "search_placeholder": "Search stickers",
+        "stickers_label": "Stickers"
+    },
     "matcha_threads": {
         "active_status": "Active",
         "all_boards": "All boards",

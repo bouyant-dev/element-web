@@ -11,7 +11,7 @@ Please see LICENSE files in the repository root for full details.
 import React from "react";
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "test-utils-rtl";
-import { EventType, type MatrixEvent, RoomMember, THREAD_RELATION_TYPE } from "matrix-js-sdk/src/matrix";
+import { EventType, type MatrixEvent, Room, RoomMember, THREAD_RELATION_TYPE } from "matrix-js-sdk/src/matrix";
 import userEvent from "@testing-library/user-event";
 import { initOnce } from "@vector-im/matrix-wysiwyg";
 import {
@@ -42,6 +42,7 @@ import { TimelineRenderingType, type RoomContextType } from "../../../contexts/R
 import { RoomUploadContextProvider } from "../../../viewmodels/room/RoomUploadViewModel.tsx";
 import { SDKContext } from "../../../contexts/SDKContext.ts";
 import { SDKContextClass } from "../../../contexts/SDKContextClass.ts";
+import SdkConfig from "../../../SdkConfig";
 
 const openStickerPicker = async (): Promise<void> => {
     await userEvent.click(screen.getByLabelText("More options"));
@@ -422,6 +423,34 @@ describe("MessageComposer", () => {
             it("should try to start a voice message", () => {
                 expectVoiceMessageRecordingTriggered();
             });
+        });
+    });
+
+    describe("with Matcha's beta features on", () => {
+        let room: Room;
+
+        beforeEach(() => {
+            SdkConfig.add({ matcha_thread_tabs: true });
+            room = new Room("!matcha:server", MatrixClientPeg.safeGet(), "@me:server");
+        });
+
+        afterEach(() => {
+            SdkConfig.reset();
+        });
+
+        it("opens the MSC2545 sticker picker from the bar instead of the integration manager's", async () => {
+            wrapAndRender({ room });
+            await userEvent.click(screen.getByRole("button", { name: "Sticker" }));
+            expect(await screen.findByText("No stickers yet")).toBeInTheDocument();
+            expect(screen.queryByText("You don't currently have any stickerpacks enabled")).not.toBeInTheDocument();
+        });
+
+        it("opens the emoji picker from the overflow menu and closes the menu", async () => {
+            wrapAndRender({ room });
+            await userEvent.click(screen.getByLabelText("More options"));
+            await userEvent.click(screen.getByRole("menuitem", { name: "Emoji" }));
+            expect(screen.queryByRole("menuitem", { name: "Emoji" })).not.toBeInTheDocument();
+            expect(await screen.findByLabelText("Emoji picker")).toBeInTheDocument();
         });
     });
 

@@ -9,8 +9,9 @@ Please see LICENSE files in the repository root for full details.
 // @vitest-environment happy-dom
 
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "test-utils-rtl";
+import userEvent from "@testing-library/user-event";
 import { createTestClient, getRoomContext, mkStubRoom } from "test-utils";
 
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
@@ -19,6 +20,8 @@ import MessageComposerButtons from "./MessageComposerButtons";
 import { ScopedRoomContextProvider } from "../../../contexts/ScopedRoomContext.tsx";
 import { type RoomContextType } from "../../../contexts/RoomContext.ts";
 import { RoomUploadContextProvider } from "../../../viewmodels/room/RoomUploadViewModel.tsx";
+import SdkConfig from "../../../SdkConfig";
+import SettingsStore from "../../../settings/SettingsStore";
 
 describe("MessageComposerButtons", () => {
     // @ts-ignore - we're deliberately not implementing the whole interface here, but
@@ -30,6 +33,7 @@ describe("MessageComposerButtons", () => {
         menuPosition: undefined,
         onRecordStartEndClick: () => {},
         setStickerPickerOpen: () => {},
+        setEmojiPickerOpen: () => {},
         toggleButtonMenu: () => {},
     };
 
@@ -172,6 +176,75 @@ describe("MessageComposerButtons", () => {
                     "Location",
                 ],
             ]);
+        });
+    });
+
+    describe("with Matcha's beta features on", () => {
+        beforeEach(() => {
+            SdkConfig.add({ matcha_thread_tabs: true });
+        });
+
+        afterEach(() => {
+            SdkConfig.reset();
+            vi.restoreAllMocks();
+        });
+
+        const renderButtons = (narrow: boolean, props: Partial<React.ComponentProps<typeof MessageComposerButtons>>) =>
+            wrapAndRender(
+                <MessageComposerButtons
+                    {...mockProps}
+                    isMenuOpen={false}
+                    showLocationButton={true}
+                    showPollsButton={true}
+                    showStickersButton={true}
+                    {...props}
+                />,
+                narrow,
+            );
+
+        it("puts the sticker button in the bar and emoji in the menu in wide mode", async () => {
+            renderButtons(false, { isMenuOpen: true });
+            await waitFor(() => {
+                expect(getButtonLabels()).toEqual([
+                    "Sticker",
+                    "Attachment",
+                    "More options",
+                    ["Emoji", "Voice Message", "Poll", "Location"],
+                ]);
+            });
+        });
+
+        it("puts the sticker button in the bar and emoji in the menu in narrow mode", () => {
+            renderButtons(true, { isMenuOpen: true });
+            expect(getButtonLabels()).toEqual(["Sticker", "More options", ["Attachment", "Emoji", "Poll", "Location"]]);
+        });
+
+        it("opens the composer's emoji picker from the menu", async () => {
+            const setEmojiPickerOpen = vi.fn();
+            renderButtons(false, { isMenuOpen: true, setEmojiPickerOpen });
+            await userEvent.click(screen.getByRole("menuitem", { name: "Emoji" }));
+            expect(setEmojiPickerOpen).toHaveBeenCalledWith(true);
+        });
+
+        it("opens the sticker picker from the bar", async () => {
+            const setStickerPickerOpen = vi.fn();
+            renderButtons(false, { setStickerPickerOpen });
+            await userEvent.click(screen.getByRole("button", { name: "Sticker" }));
+            expect(setStickerPickerOpen).toHaveBeenCalledWith(true);
+        });
+
+        it("keeps the emoji button in the bar when the stickers button is turned off", () => {
+            renderButtons(false, { isMenuOpen: true, showStickersButton: false, showLocationButton: false });
+            expect(getButtonLabels()).toEqual(["Emoji", "Attachment", "More options", ["Voice Message", "Poll"]]);
+        });
+
+        it("leaves emoji to the formatting bar in the WYSIWYG composer", () => {
+            const getValue = SettingsStore.getValue;
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((name, ...rest) =>
+                name === "feature_wysiwyg_composer" ? true : getValue.call(SettingsStore, name, ...rest),
+            );
+            renderButtons(true, { isMenuOpen: true, showLocationButton: false });
+            expect(getButtonLabels()).toEqual(["Show formatting", "Sticker", "More options", ["Attachment", "Poll"]]);
         });
     });
 });

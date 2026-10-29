@@ -67,8 +67,13 @@ export interface CustomEmoji {
     body?: string;
 }
 
-/** Custom emoji from one pack, ready to offer in a room. */
-export interface EmojiPack {
+/** A validated sticker; `info` is what an m.sticker event carries. */
+export interface CustomSticker extends CustomEmoji {
+    info?: ImagePackImage["info"];
+}
+
+/** Where a pack comes from and what to call it. */
+interface PackDetails {
     /** "user" for the personal pack, otherwise `${roomId}|${stateKey}`. */
     id: string;
     kind: "user" | "room";
@@ -77,7 +82,16 @@ export interface EmojiPack {
     name: string;
     /** The mxc URL of the pack avatar. */
     avatarUrl?: string;
+}
+
+/** Custom emoji from one pack, ready to offer in a room. */
+export interface EmojiPack extends PackDetails {
     emojis: CustomEmoji[];
+}
+
+/** Stickers from one pack, ready to offer in a room. */
+export interface StickerPack extends PackDetails {
+    stickers: CustomSticker[];
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -96,22 +110,58 @@ function usages(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
 }
 
-/** Validated emoji of a pack, sorted by shortcode; malformed images are skipped so other clients' data cannot break us. */
-export function parseEmojiImages(content: unknown): CustomEmoji[] {
+/**
+ * What an image is for: its own usage when not empty, else the pack's. Empty means every usage, as MSC2545 says.
+ * Malformed usage values count as empty.
+ */
+export function effectiveUsage(content: unknown, image: unknown): unknown[] {
+    const imageUsage = usages(isObject(image) ? image.usage : undefined);
+    if (imageUsage.length) return imageUsage;
+    return usages(isObject(content) && isObject(content.pack) ? content.pack.usage : undefined);
+}
+
+function isCount(value: unknown, min: number): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= min;
+}
+
+/** The image info fields that are well formed, or nothing. */
+function imageInfo(value: unknown): ImagePackImage["info"] | undefined {
+    if (!isObject(value)) return undefined;
+    const info: NonNullable<ImagePackImage["info"]> = {
+        ...(isCount(value.w, 1) ? { w: value.w } : {}),
+        ...(isCount(value.h, 1) ? { h: value.h } : {}),
+        ...(typeof value.mimetype === "string" && /^image\/[\w.+-]{1,100}$/.test(value.mimetype)
+            ? { mimetype: value.mimetype }
+            : {}),
+        ...(isCount(value.size, 0) ? { size: value.size } : {}),
+    };
+    return Object.keys(info).length ? info : undefined;
+}
+
+/** Validated images of a pack usable for `usage`, sorted by shortcode; malformed images are skipped. */
+function parseImages(content: unknown, usage: ImagePackUsage): CustomSticker[] {
     if (!isObject(content) || !isObject(content.images)) return [];
-    const packUsage = usages(isObject(content.pack) ? content.pack.usage : undefined);
-    const emojis: CustomEmoji[] = [];
+    const images: CustomSticker[] = [];
     for (const [shortcode, image] of Object.entries(content.images)) {
         if (!isValidShortcode(shortcode) || !isObject(image) || !isMxc(image.url)) continue;
         const body = typeof image.body === "string" ? image.body : undefined;
         if (body && body.length > MAX_TEXT_LENGTH) continue;
-        // An image's own usage replaces the pack's; no usage anywhere means every usage.
-        const imageUsage = usages(image.usage);
-        const usage = imageUsage.length ? imageUsage : packUsage;
-        if (usage.length && !usage.includes("emoticon")) continue;
-        emojis.push({ shortcode, url: image.url, ...(body ? { body } : {}) });
+        const imageUsage = effectiveUsage(content, image);
+        if (imageUsage.length && !imageUsage.includes(usage)) continue;
+        const info = imageInfo(image.info);
+        images.push({ shortcode, url: image.url, ...(body ? { body } : {}), ...(info ? { info } : {}) });
     }
-    return emojis.sort((a, b) => a.shortcode.localeCompare(b.shortcode));
+    return images.sort((a, b) => a.shortcode.localeCompare(b.shortcode));
+}
+
+/** Validated emoji of a pack, sorted by shortcode; malformed images are skipped so other clients' data cannot break us. */
+export function parseEmojiImages(content: unknown): CustomEmoji[] {
+    return parseImages(content, "emoticon").map(({ info, ...emoji }) => emoji);
+}
+
+/** Validated stickers of a pack, sorted by shortcode, with their well-formed image info. */
+export function parseStickerImages(content: unknown): CustomSticker[] {
+    return parseImages(content, "sticker");
 }
 
 /** The pack's own display name and avatar, when valid. */
@@ -158,11 +208,37 @@ export function getEmojiPacks(
     parentSpaceIds: Iterable<string>,
     userPackName: string,
 ): EmojiPack[] {
-    const packs: EmojiPack[] = [];
+    return getPacks(client, room, parentSpaceIds, userPackName, parseEmojiImages).map(({ images, ...pack }) => ({
+        ...pack,
+        emojis: images,
+    }));
+}
+
+/** Sticker packs usable in a room, in the same order and with the same rules as {@link getEmojiPacks}. */
+export function getStickerPacks(
+    client: MatrixClient,
+    room: Room | undefined,
+    parentSpaceIds: Iterable<string>,
+    userPackName: string,
+): StickerPack[] {
+    return getPacks(client, room, parentSpaceIds, userPackName, parseStickerImages).map(({ images, ...pack }) => ({
+        ...pack,
+        stickers: images,
+    }));
+}
+
+function getPacks<T>(
+    client: MatrixClient,
+    room: Room | undefined,
+    parentSpaceIds: Iterable<string>,
+    userPackName: string,
+    parse: (content: unknown) => T[],
+): (PackDetails & { images: T[] })[] {
+    const packs: (PackDetails & { images: T[] })[] = [];
     const userContent = client.getAccountData(USER_EMOTES_EVENT)?.getContent();
-    const userEmojis = parseEmojiImages(userContent);
-    if (userEmojis.length) {
-        packs.push({ id: "user", kind: "user", ...packDetails(userContent), name: userPackName, emojis: userEmojis });
+    const userImages = parse(userContent);
+    if (userImages.length) {
+        packs.push({ id: "user", kind: "user", ...packDetails(userContent), name: userPackName, images: userImages });
     }
 
     const seen = new Set<string>();
@@ -173,8 +249,8 @@ export function getEmojiPacks(
         if (seen.has(id)) return;
         seen.add(id);
         const content = event.getContent();
-        const emojis = parseEmojiImages(content);
-        if (!emojis.length) return;
+        const images = parse(content);
+        if (!images.length) return;
         const { name, avatarUrl } = packDetails(content);
         packs.push({
             id,
@@ -183,7 +259,7 @@ export function getEmojiPacks(
             stateKey,
             name: name ?? packRoom.name,
             ...(avatarUrl ? { avatarUrl } : {}),
-            emojis,
+            images,
         });
     };
     // The managed pack (empty state key) sorts first; other clients' packs follow in a stable order.

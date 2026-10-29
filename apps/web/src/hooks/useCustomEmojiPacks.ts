@@ -24,7 +24,9 @@ import {
     type EmojiPack,
     getEmojiPacks,
     getParentSpaceIds,
+    getStickerPacks,
     ROOM_EMOTES_EVENT,
+    type StickerPack,
     USER_EMOTES_EVENT,
 } from "../utils/matcha/imagePacks";
 import { useTypedEventEmitter } from "./useEventEmitter";
@@ -39,17 +41,33 @@ export function availableEmojiPacks(client: MatrixClient, room: Room | undefined
     return getEmojiPacks(client, room, parents, _t("matcha_emoji|personal_pack_name"));
 }
 
+/** Sticker packs usable in a room, in the same order as {@link availableEmojiPacks}. Empty unless Matcha's beta features are on. */
+export function availableStickerPacks(client: MatrixClient, room: Room | undefined): StickerPack[] {
+    if (!SdkConfig.get("matcha_thread_tabs")) return [];
+    const parents = room ? getParentSpaceIds(client, room.roomId) : [];
+    return getStickerPacks(client, room, parents, _t("matcha_stickers|personal_pack_name"));
+}
+
 /**
  * {@link availableEmojiPacks}, kept up to date as packs change. The array is only replaced when its contents change,
  * so it is safe to use as a dependency.
  */
 export function useCustomEmojiPacks(room: Room | undefined): EmojiPack[] {
+    return useLivePacks(room, availableEmojiPacks);
+}
+
+/** {@link availableStickerPacks}, kept up to date like {@link useCustomEmojiPacks}. */
+export function useCustomStickerPacks(room: Room | undefined): StickerPack[] {
+    return useLivePacks(room, availableStickerPacks);
+}
+
+function useLivePacks<T>(room: Room | undefined, read: (client: MatrixClient, room: Room | undefined) => T[]): T[] {
     const client = useMatrixClientContext();
-    const [packs, setPacks] = useState(() => availableEmojiPacks(client, room));
+    const [packs, setPacks] = useState(() => read(client, room));
     const refresh = useCallback((): void => {
-        const next = availableEmojiPacks(client, room);
+        const next = read(client, room);
         setPacks((previous) => (isEqual(previous, next) ? previous : next));
-    }, [client, room]);
+    }, [client, room, read]);
 
     useEffect(refresh, [refresh]);
     useTypedEventEmitter(client, ClientEvent.AccountData, (event: MatrixEvent) => {

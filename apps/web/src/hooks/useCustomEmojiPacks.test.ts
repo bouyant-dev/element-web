@@ -20,7 +20,12 @@ import {
     ROOM_EMOTES_EVENT,
     USER_EMOTES_EVENT,
 } from "../utils/matcha/imagePacks";
-import { availableEmojiPacks, useCustomEmojiPacks } from "./useCustomEmojiPacks";
+import {
+    availableEmojiPacks,
+    availableStickerPacks,
+    useCustomEmojiPacks,
+    useCustomStickerPacks,
+} from "./useCustomEmojiPacks";
 
 describe("useCustomEmojiPacks", () => {
     let client: MatrixClient;
@@ -86,6 +91,36 @@ describe("useCustomEmojiPacks", () => {
         it("should offer only account packs without a room", () => {
             expect(ids(availableEmojiPacks(client, undefined))).toEqual(["user"]);
         });
+    });
+
+    describe("availableStickerPacks", () => {
+        it("should offer nothing while Matcha's beta features are off", () => {
+            SdkConfig.add({ matcha_thread_tabs: false });
+            expect(availableStickerPacks(client, room)).toEqual([]);
+        });
+
+        it("should offer images that may be stickers, under the personal sticker pack's name", () => {
+            userPack = {
+                images: {
+                    wave: { url: "mxc://x/wave", usage: ["sticker"] },
+                    smile: { url: "mxc://x/smile", usage: ["emoticon"] },
+                },
+            };
+            const packs = availableStickerPacks(client, room);
+            expect(packs.map((pack) => pack.name)).toEqual(["Your stickers", "Space"]);
+            expect(packs[0].stickers.map((sticker) => sticker.shortcode)).toEqual(["wave"]);
+        });
+    });
+
+    it("should keep sticker packs up to date", () => {
+        const { result } = renderHook(() => useCustomStickerPacks(room), withClientContextRenderOptions(client));
+        expect(result.current.map((pack) => pack.id)).toEqual(["user", "!space:x|"]);
+
+        userPack = { images: { sticker: { url: "mxc://x/sticker", usage: ["sticker"] } } };
+        act(() => {
+            client.emit(ClientEvent.AccountData, new MatrixEvent({ type: USER_EMOTES_EVENT, content: userPack }));
+        });
+        expect(result.current[0].stickers.map((sticker) => sticker.shortcode)).toEqual(["sticker"]);
     });
 
     it("should update when packs change and keep the same array otherwise", () => {

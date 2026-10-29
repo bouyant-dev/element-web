@@ -15,6 +15,7 @@ export * from "./core/AvatarWithDetails";
 export * from "./core/MemberAvatar/MemberAvatarView.tsx";
 export * from "./core/EmojiPicker";
 export * from "./emoji/EmojiPackSettingsView";
+export * from "./emoji/StickerPickerView";
 export * from "./core/FacePile/FacePileView.tsx";
 export * from "./core/roving";
 export * from "./room/composer/Banner";

@@ -26,6 +26,9 @@ import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import dis from "../../../dispatcher/dispatcher";
 import { type ActionPayload } from "../../../dispatcher/payloads";
 import Stickerpicker from "./Stickerpicker";
+import { MatchaStickerPicker } from "./MatchaStickerPicker";
+import { EmojiPickerMenu } from "./EmojiButton";
+import SdkConfig from "../../../SdkConfig";
 import { makeRoomPermalink, type RoomPermalinkCreator } from "../../../utils/permalinks/Permalinks";
 import E2EIcon from "./E2EIcon";
 import SettingsStore from "../../../settings/SettingsStore";
@@ -107,6 +110,8 @@ interface IState {
     me?: RoomMember;
     isMenuOpen: boolean;
     isStickerPickerOpen: boolean;
+    /** The emoji picker opened from the overflow menu, which unmounts when it closes. */
+    isEmojiPickerOpen: boolean;
     showStickersButton: boolean;
     showPollsButton: boolean;
     isWysiwygLabEnabled: boolean;
@@ -157,6 +162,7 @@ export class MessageComposer extends React.Component<IProps, IState> {
             recordingTimeLeftSeconds: undefined, // when set to a number, shows a toast
             isMenuOpen: false,
             isStickerPickerOpen: false,
+            isEmojiPickerOpen: false,
             showStickersButton: SettingsStore.getValue("MessageComposerInput.showStickersButton"),
             showPollsButton: SettingsStore.getValue("MessageComposerInput.showPollsButton"),
             isWysiwygLabEnabled: isWysiwygLabEnabled,
@@ -268,6 +274,7 @@ export class MessageComposer extends React.Component<IProps, IState> {
             this.setState({
                 isMenuOpen: !narrow ? false : this.state.isMenuOpen,
                 isStickerPickerOpen: false,
+                isEmojiPickerOpen: false,
             });
         }
     };
@@ -508,6 +515,15 @@ export class MessageComposer extends React.Component<IProps, IState> {
         });
     };
 
+    private setEmojiPickerOpen = (isEmojiPickerOpen: boolean): void => {
+        this.setState({
+            isEmojiPickerOpen,
+            isMenuOpen: false,
+        });
+    };
+
+    private closeEmojiPicker = (): void => this.setEmojiPickerOpen(false);
+
     private toggleStickerPickerOpen = (): void => {
         this.setStickerPickerOpen(!this.state.isStickerPickerOpen);
     };
@@ -676,16 +692,38 @@ export class MessageComposer extends React.Component<IProps, IState> {
         const threadId =
             this.props.relation?.rel_type === THREAD_RELATION_TYPE.name ? this.props.relation.event_id : null;
 
+        // Matcha's picker offers the MSC2545 packs of the user, the room and its Spaces instead of an integration manager's.
         controls.push(
-            <Stickerpicker
-                room={this.props.room}
-                threadId={threadId}
-                isStickerPickerOpen={this.state.isStickerPickerOpen}
-                setStickerPickerOpen={this.setStickerPickerOpen}
-                menuPosition={menuPosition}
-                key="stickers"
-            />,
+            SdkConfig.get("matcha_thread_tabs") ? (
+                <MatchaStickerPicker
+                    room={this.props.room}
+                    threadId={threadId ?? null}
+                    isStickerPickerOpen={this.state.isStickerPickerOpen}
+                    setStickerPickerOpen={this.setStickerPickerOpen}
+                    menuPosition={menuPosition}
+                    key="stickers"
+                />
+            ) : (
+                <Stickerpicker
+                    room={this.props.room}
+                    threadId={threadId}
+                    isStickerPickerOpen={this.state.isStickerPickerOpen}
+                    setStickerPickerOpen={this.setStickerPickerOpen}
+                    menuPosition={menuPosition}
+                    key="stickers"
+                />
+            ),
         );
+        if (this.state.isEmojiPickerOpen && menuPosition) {
+            controls.push(
+                <EmojiPickerMenu
+                    key="emoji_picker"
+                    position={menuPosition}
+                    addEmoji={this.addEmoji}
+                    onFinished={this.closeEmojiPicker}
+                />,
+            );
+        }
 
         const showSendButton = canSendMessages && (!this.state.isComposerEmpty || this.state.haveRecording);
 
@@ -720,6 +758,7 @@ export class MessageComposer extends React.Component<IProps, IState> {
                                     relation={this.props.relation}
                                     onRecordStartEndClick={this.onRecordStartEndClick}
                                     setStickerPickerOpen={this.setStickerPickerOpen}
+                                    setEmojiPickerOpen={this.setEmojiPickerOpen}
                                     showLocationButton={
                                         !window.electron && SettingsStore.getValue(UIFeature.LocationSharing)
                                     }

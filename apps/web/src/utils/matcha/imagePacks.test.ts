@@ -19,11 +19,14 @@ import {
     USER_EMOTES_EVENT,
     type EmojiPack,
     type ImagePackContent,
+    effectiveUsage,
     emoticonHtml,
     findEmojiByShortcode,
     getEmojiPacks,
     getParentSpaceIds,
+    getStickerPacks,
     parseEmojiImages,
+    parseStickerImages,
     replaceEmoticonsWithText,
     shortcodeFromFileName,
     withImage,
@@ -162,6 +165,85 @@ describe("imagePacks", () => {
         });
     });
 
+    describe("parseStickerImages", () => {
+        const images = {
+            none: { url: mxc("a") },
+            empty: { url: mxc("b"), usage: [] },
+            emoticon: { url: mxc("c"), usage: ["emoticon"] },
+            sticker: { url: mxc("d"), usage: ["sticker"] },
+            both: { url: mxc("e"), usage: ["sticker", "emoticon"] },
+            hostile: { url: mxc("f"), usage: "emoticon" },
+        };
+        const codes = (content: unknown): string[] => parseStickerImages(content).map((sticker) => sticker.shortcode);
+
+        it("should keep only images usable as stickers, with image usage overriding the pack's", () => {
+            expect(codes({ images })).toEqual(["both", "empty", "hostile", "none", "sticker"]);
+            expect(codes({ images, pack: { usage: ["emoticon"] } })).toEqual(["both", "sticker"]);
+            expect(codes({ images, pack: { usage: ["sticker"] } })).toEqual([
+                "both",
+                "empty",
+                "hostile",
+                "none",
+                "sticker",
+            ]);
+        });
+
+        it("should keep well-formed image info and drop the rest", () => {
+            expect(
+                parseStickerImages({
+                    images: {
+                        full: {
+                            url: mxc("full"),
+                            body: "Waving",
+                            info: { w: 512, h: 256, mimetype: "image/webp", size: 0, extra: true },
+                        },
+                        bad: { url: mxc("bad"), info: { w: 0, h: 1.5, mimetype: "text/html", size: -1 } },
+                        partly: { url: mxc("partly"), info: { w: "512", h: 64, mimetype: "image/svg+xml" } },
+                        hostile: { url: mxc("hostile"), info: [512] },
+                    },
+                }),
+            ).toEqual([
+                { shortcode: "bad", url: mxc("bad") },
+                {
+                    shortcode: "full",
+                    url: mxc("full"),
+                    body: "Waving",
+                    info: { w: 512, h: 256, mimetype: "image/webp", size: 0 },
+                },
+                { shortcode: "hostile", url: mxc("hostile") },
+                { shortcode: "partly", url: mxc("partly"), info: { h: 64, mimetype: "image/svg+xml" } },
+            ]);
+        });
+
+        it("should leave image info out of emoji", () => {
+            expect(parseEmojiImages({ images: { a: { url: mxc("a"), info: { w: 32 } } } })).toEqual([
+                { shortcode: "a", url: mxc("a") },
+            ]);
+        });
+
+        it("should apply the same URL and shortcode checks as emoji", () => {
+            expect(
+                codes({
+                    images: {
+                        "ok": { url: mxc("ok") },
+                        "http": { url: "https://example.org/a.png" },
+                        "has space": { url: mxc("s") },
+                        "has:colon": { url: mxc("c") },
+                    },
+                }),
+            ).toEqual(["ok"]);
+        });
+    });
+
+    describe("effectiveUsage", () => {
+        it("should prefer the image's own usage, then the pack's, and ignore malformed values", () => {
+            expect(effectiveUsage({ pack: { usage: ["sticker"] } }, { usage: ["emoticon"] })).toEqual(["emoticon"]);
+            expect(effectiveUsage({ pack: { usage: ["sticker"] } }, { usage: [] })).toEqual(["sticker"]);
+            expect(effectiveUsage({ pack: { usage: "sticker" } }, {})).toEqual([]);
+            expect(effectiveUsage(undefined, undefined)).toEqual([]);
+        });
+    });
+
     describe("getEmojiPacks", () => {
         let client: MatrixClient;
         let accountData: Record<string, unknown>;
@@ -262,6 +344,35 @@ describe("imagePacks", () => {
                 "Space",
             ]);
             expect(packs[4].avatarUrl).toBe(mxc("space"));
+        });
+
+        it("should offer sticker packs in the same order, with their stickers", () => {
+            accountData[USER_EMOTES_EVENT] = {
+                images: {
+                    wave: { url: mxc("wave"), usage: ["sticker"], info: { w: 512, h: 512 } },
+                    smile: { url: mxc("smile"), usage: ["emoticon"] },
+                },
+            };
+            accountData[EMOTE_ROOMS_EVENT] = { rooms: { "!other:x": { pepe: {} } } };
+            const room = makeRoom("!room:x", "General", KnownMembership.Join, {
+                "": pack("a"),
+                "emoji-only": { images: { e: { url: mxc("e") } }, pack: { usage: ["emoticon"] } },
+            });
+            makeRoom("!other:x", "Other", KnownMembership.Join, {
+                pepe: { images: { frog: { url: mxc("frog") } }, pack: { display_name: "Pepe", usage: ["sticker"] } },
+            });
+
+            const packs = getStickerPacks(client, room, [], "Your stickers");
+
+            expect(packs.map((stickerPack) => stickerPack.id)).toEqual(["user", "!other:x|pepe", "!room:x|"]);
+            expect(packs[0]).toEqual({
+                id: "user",
+                kind: "user",
+                name: "Your stickers",
+                stickers: [{ shortcode: "wave", url: mxc("wave"), info: { w: 512, h: 512 } }],
+            });
+            expect(packs[1].name).toBe("Pepe");
+            expect(packs[1].stickers).toEqual([{ shortcode: "frog", url: mxc("frog") }]);
         });
 
         it("should offer only enabled packs without a room", () => {

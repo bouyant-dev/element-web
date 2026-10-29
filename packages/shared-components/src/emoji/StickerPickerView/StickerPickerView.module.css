@@ -1,0 +1,129 @@
+/*
+Copyright 2026 David
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.picker {
+    box-sizing: border-box;
+    width: 340px;
+    height: min(380px, 80vh);
+    color: var(--cpd-color-text-primary);
+}
+
+.empty {
+    padding: var(--cpd-space-6x);
+    text-align: center;
+}
+
+.secondary {
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+}
+
+.search {
+    margin: var(--cpd-space-2x);
+}
+
+.tabs {
+    display: flex;
+    gap: var(--cpd-space-1x);
+    padding: 0 var(--cpd-space-2x);
+    border-bottom: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+    /* Many packs scroll sideways rather than wrap */
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.tab {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: var(--cpd-space-1x);
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 4px 4px 0 0;
+    background: transparent;
+    color: var(--cpd-color-text-primary);
+    font: var(--cpd-font-body-md-semibold);
+    cursor: pointer;
+
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    &:hover {
+        background-color: var(--cpd-color-bg-subtle-primary);
+    }
+
+    /* Inside the tab, as the scrolling row would clip a ring drawn outside it */
+    &:focus-visible {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+        outline-offset: -2px;
+    }
+}
+
+.tabSelected {
+    border-bottom-color: var(--cpd-color-text-action-accent);
+}
+
+.body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--cpd-space-2x);
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--cpd-space-1x);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sticker {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    padding: var(--cpd-space-1x);
+    border: none;
+    border-radius: var(--cpd-space-2x);
+    background: transparent;
+    cursor: pointer;
+
+    img {
+        width: 100%;
+        height: 100%;
+        /* Keep non-square stickers whole rather than cropped */
+        object-fit: contain;
+    }
+
+    &:hover {
+        background-color: var(--cpd-color-bg-subtle-primary);
+    }
+
+    &:focus-visible {
+        outline: var(--cpd-border-width-2) solid var(--cpd-color-border-focused);
+        outline-offset: -2px;
+    }
+}
+
+.noResults {
+    padding: var(--cpd-space-4x) 0;
+    text-align: center;
+}
+
+.footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: var(--cpd-space-1x) var(--cpd-space-2x);
+    border-top: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}

@@ -97,13 +97,19 @@ jobs:
                     apps/web/src/components/structures/MatrixChat.test.tsx \
                     apps/web/src/stores/RoomViewStore.test.ts \
                     apps/web/src/components/structures/RoomView.test.tsx \
-                    apps/web/src/components/structures/ThreadView.test.tsx
+                    apps/web/src/components/structures/ThreadView.test.tsx \
+                    apps/web/src/utils/matcha/imagePacks.test.ts \
+                    apps/web/src/hooks/useCustomEmojiPacks.test.ts \
+                    apps/web/src/viewmodels/emoji/StickerPickerViewModel.test.ts \
+                    apps/web/src/components/views/rooms/MessageComposerButtons.test.tsx \
+                    apps/web/src/components/views/rooms/MessageComposer.test.tsx
                   pnpm --dir packages/shared-components exec vitest run --project unit \
                     src/room/RoomThreadTabs/RoomThreadTabsView.test.tsx \
                     src/room/KanbanBoard/KanbanBoardView.test.tsx \
                     src/room/RoomDocs/RoomDocsView.test.tsx \
                     src/room/SpaceDocsSetup/SpaceDocsSetupView.test.tsx \
-                    src/room/RoomReminder/RoomReminderView.test.tsx
+                    src/room/RoomReminder/RoomReminderView.test.tsx \
+                    src/emoji/StickerPickerView/StickerPickerView.test.tsx
                   pnpm --dir apps/web lint:types
                   pnpm --dir packages/shared-components lint:types
 

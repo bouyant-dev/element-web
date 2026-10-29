@@ -34,11 +34,7 @@ export function EmojiButton({ addEmoji, menuPosition, className }: IEmojiButtonP
             overflowMenuCloser?.();
         };
 
-        contextMenu = (
-            <ContextMenu {...position} onFinished={onFinished} managed={false} focusLock>
-                <EmojiPickerWithRecents onChoose={addEmoji} onFinished={onFinished} />
-            </ContextMenu>
-        );
+        contextMenu = <EmojiPickerMenu position={position} addEmoji={addEmoji} onFinished={onFinished} />;
     }
 
     const computedClassName = classNames("mx_EmojiButton", className, {
@@ -60,5 +56,27 @@ export function EmojiButton({ addEmoji, menuPosition, className }: IEmojiButtonP
 
             {contextMenu}
         </>
+    );
+}
+
+/**
+ * The emoji picker popover, also opened by the composer when its emoji button sits in the overflow menu.
+ * @param position - where to show it
+ * @param addEmoji - called with each chosen emoji
+ * @param onFinished - called when the picker should close
+ */
+export function EmojiPickerMenu({
+    position,
+    addEmoji,
+    onFinished,
+}: {
+    position: MenuProps;
+    addEmoji: IEmojiButtonProps["addEmoji"];
+    onFinished: () => void;
+}): JSX.Element {
+    return (
+        <ContextMenu {...position} onFinished={onFinished} managed={false} focusLock>
+            <EmojiPickerWithRecents onChoose={addEmoji} onFinished={onFinished} />
+        </ContextMenu>
     );
 }

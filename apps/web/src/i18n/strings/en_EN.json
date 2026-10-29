@@ -1766,6 +1766,9 @@
         "rename_error": "Could not rename the document. Please try again.",
         "setup_error": "Setup is incomplete. Encryption may already be enabled and cannot be turned off. Check your connection and Space permissions, then try again."
     },
+    "matcha_stickers": {
+        "personal_pack_name": "Your stickers"
+    },
     "matcha_threads": {
         "archive": "Archive thread",
         "archive_description": "Hide this thread from the selector for everyone using POND? Messages are kept, and it can be restored from Thread history. Other Matrix clients can still show it.",

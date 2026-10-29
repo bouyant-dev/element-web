@@ -20,6 +20,7 @@ import {
     MicOnIcon,
     OverflowHorizontalIcon,
     PollsIcon,
+    ReactionIcon,
     StickerIcon,
     TextFormattingIcon,
 } from "@vector-im/compound-design-tokens/assets/web/icons";
@@ -44,6 +45,7 @@ import { useSettingValue } from "../../../hooks/useSettings";
 import AccessibleButton, { type ButtonEvent } from "../elements/AccessibleButton";
 import { useScopedRoomContext } from "../../../contexts/ScopedRoomContext.tsx";
 import { useRoomUploadViewModel } from "../../../viewmodels/room/RoomUploadViewModel.tsx";
+import SdkConfig from "../../../SdkConfig";
 
 interface IProps {
     addEmoji: (emoji: string, custom?: PickerCustomEmoji) => boolean;
@@ -54,6 +56,8 @@ interface IProps {
     onRecordStartEndClick: () => void;
     relation?: IEventRelation;
     setStickerPickerOpen: (isStickerPickerOpen: boolean) => void;
+    /** Opens the composer's emoji picker; used when the emoji button sits in the overflow menu. */
+    setEmojiPickerOpen: (isEmojiPickerOpen: boolean) => void;
     showLocationButton: boolean;
     showPollsButton: boolean;
     showStickersButton: boolean;
@@ -74,20 +78,28 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
         return null;
     }
 
+    // Matcha: the sticker button takes the emoji button's place in the bar, and emoji move into the overflow menu.
+    // The WYSIWYG composer keeps its emoji button in the formatting bar.
+    const stickersInBar = !!SdkConfig.get("matcha_thread_tabs") && props.showStickersButton;
+    let firstButton: ReactNode = null;
+    if (isWysiwygLabEnabled) {
+        firstButton = (
+            <ComposerModeButton
+                key="composerModeButton"
+                isRichTextEnabled={props.isRichTextEnabled}
+                onClick={props.onComposerModeClick}
+            />
+        );
+    } else if (!stickersInBar) {
+        firstButton = emojiButton(props);
+    }
+    let overflowEmojiOrStickers: ReactNode = showStickersButton(props);
+    if (stickersInBar) overflowEmojiOrStickers = isWysiwygLabEnabled ? null : emojiMenuButton(props);
+
     let mainButtons: ReactNode[];
     let moreButtons: ReactNode[];
     if (narrow) {
-        mainButtons = [
-            isWysiwygLabEnabled ? (
-                <ComposerModeButton
-                    key="composerModeButton"
-                    isRichTextEnabled={props.isRichTextEnabled}
-                    onClick={props.onComposerModeClick}
-                />
-            ) : (
-                emojiButton(props)
-            ),
-        ];
+        mainButtons = [firstButton, stickersInBar ? showStickersButton(props) : null];
         moreButtons = [
             // This a textual list of buttons, so we can't use the UploadButton here.
             roomUploadSnapshot.options.map(({ type, icon: Icon, label }) => (
@@ -98,26 +110,19 @@ const MessageComposerButtons: React.FC<IProps> = (props: IProps) => {
                     key={type}
                 />
             )),
-            showStickersButton(props),
+            overflowEmojiOrStickers,
             voiceRecordingButton(props, narrow),
             props.showPollsButton ? pollButton(room, props.relation) : null,
             showLocationButton(props, room, matrixClient),
         ];
     } else {
         mainButtons = [
-            isWysiwygLabEnabled ? (
-                <ComposerModeButton
-                    key="composerModeButton"
-                    isRichTextEnabled={props.isRichTextEnabled}
-                    onClick={props.onComposerModeClick}
-                />
-            ) : (
-                emojiButton(props)
-            ),
+            firstButton,
+            stickersInBar ? showStickersButton(props) : null,
             <UploadButton key="upload" vm={roomUploadVM} />,
         ];
         moreButtons = [
-            showStickersButton(props),
+            overflowEmojiOrStickers,
             voiceRecordingButton(props, narrow),
             props.showPollsButton ? pollButton(room, props.relation) : null,
             showLocationButton(props, room, matrixClient),
@@ -169,6 +174,20 @@ function emojiButton(props: IProps): ReactElement {
             menuPosition={props.menuPosition}
             className="mx_MessageComposer_button"
         />
+    );
+}
+
+/** The emoji button as an overflow menu option; the composer shows the picker, since the menu closes. */
+function emojiMenuButton(props: IProps): ReactElement {
+    return (
+        <CollapsibleButton
+            key="emoji_menu_button"
+            className="mx_MessageComposer_button"
+            onClick={() => props.setEmojiPickerOpen(true)}
+            title={_t("common|emoji")}
+        >
+            <ReactionIcon />
+        </CollapsibleButton>
     );
 }
 

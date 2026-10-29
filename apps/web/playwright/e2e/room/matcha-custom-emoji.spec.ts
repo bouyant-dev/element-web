@@ -121,7 +121,11 @@ test.describe("Matcha custom emoji", () => {
         await app.viewRoomById(roomId);
         await dismissPrompts(page);
 
-        await app.getComposer().getByRole("button", { name: "Emoji", exact: true }).click();
+        // The sticker button has the emoji button's place in the bar; emoji are in the "More options" menu.
+        const composer = app.getComposer();
+        await expect(composer.getByRole("button", { name: "Sticker", exact: true })).toBeVisible();
+        await composer.getByRole("button", { name: "More options", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Emoji", exact: true }).click();
         const picker = page.getByLabel("Emoji picker");
         await expect(picker.getByRole("tab", { name: "Emoji space", exact: true })).toBeVisible();
         await expect(picker.getByRole("gridcell", { name: ":space_wave:", exact: true })).toBeVisible();
