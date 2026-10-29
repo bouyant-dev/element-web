@@ -25,8 +25,14 @@ import {
     getEmojiPacks,
     getParentSpaceIds,
     getStickerPacks,
+    isUsedEverywhere,
+    packDisplayName,
+    packStateKeyFromName,
     parseEmojiImages,
     parseStickerImages,
+    roomPackStateKeys,
+    withPackName,
+    withUsedEverywhere,
     replaceEmoticonsWithText,
     shortcodeFromFileName,
     withImage,
@@ -580,6 +586,89 @@ describe("imagePacks", () => {
             const result = withRenamedImage(content, "old", "old");
             expect(result).toEqual(original);
             expect(result.images).not.toBe(content.images);
+        });
+    });
+
+    describe("pack names and use everywhere", () => {
+        it("withPackName should set the name and keep every other field", () => {
+            const content = {
+                images: { a: { url: mxc("a") } },
+                pack: { usage: ["sticker"], x: 1 },
+                y: 2,
+            } as ImagePackContent;
+            const named = withPackName(content, "Pepe");
+            expect(named).toEqual({
+                images: content.images,
+                pack: { usage: ["sticker"], x: 1, display_name: "Pepe" },
+                y: 2,
+            });
+            expect(content.pack).not.toHaveProperty("display_name");
+            expect(withPackName(undefined, "New")).toEqual({ pack: { display_name: "New" } });
+            expect(packDisplayName(named)).toBe("Pepe");
+            expect(packDisplayName({ pack: { display_name: "  " } })).toBeUndefined();
+        });
+
+        it("isUsedEverywhere should read only well-formed entries", () => {
+            const content = { rooms: { "!a:x": { "": {}, "bad": 1 } } };
+            expect(isUsedEverywhere(content, "!a:x", "")).toBe(true);
+            expect(isUsedEverywhere(content, "!a:x", "bad")).toBe(false);
+            expect(isUsedEverywhere(content, "!a:x", "toString")).toBe(false);
+            expect(isUsedEverywhere(content, "!b:x", "")).toBe(false);
+            expect(isUsedEverywhere({ rooms: [] }, "!a:x", "")).toBe(false);
+        });
+
+        it("withUsedEverywhere should add and remove one pack and keep the rest", () => {
+            const content = { rooms: { "!a:x": { "": { note: 1 }, "s": {} }, "!b:x": { t: {} } }, other: true };
+            // An existing entry's own data is kept.
+            expect(withUsedEverywhere(content, "!a:x", "", true)).toEqual(content);
+            expect(withUsedEverywhere(content, "!a:x", "s", false)).toEqual({
+                rooms: { "!a:x": { "": { note: 1 } }, "!b:x": { t: {} } },
+                other: true,
+            });
+            // A room left without packs is dropped.
+            expect(withUsedEverywhere(content, "!b:x", "t", false).rooms).not.toHaveProperty("!b:x");
+            expect(withUsedEverywhere(undefined, "!c:x", "pack", true)).toEqual({ rooms: { "!c:x": { pack: {} } } });
+            expect(content.rooms["!a:x"]).toHaveProperty("s");
+        });
+
+        it("withUsedEverywhere should store a __proto__ state key as a plain key", () => {
+            const enabled = withUsedEverywhere(undefined, "!a:x", "__proto__", true);
+            expect(Object.keys(enabled.rooms!["!a:x"])).toEqual(["__proto__"]);
+            expect(isUsedEverywhere(enabled, "!a:x", "__proto__")).toBe(true);
+        });
+    });
+
+    describe("room packs", () => {
+        const roomWith = (packs: Record<string, unknown>): Room => {
+            const client = createTestClient();
+            const room = new Room("!r:x", client, client.getSafeUserId());
+            room.currentState.setStateEvents(
+                Object.entries(packs).map(
+                    ([stateKey, content], i) =>
+                        new MatrixEvent({
+                            type: ROOM_EMOTES_EVENT,
+                            state_key: stateKey,
+                            content: content as ImagePackContent,
+                            room_id: room.roomId,
+                            sender: "@a:x",
+                            event_id: `$${i}`,
+                        }),
+                ),
+            );
+            return room;
+        };
+
+        it("roomPackStateKeys should list the default pack first, then live packs in order", () => {
+            const room = roomWith({ zebra: { images: {} }, deleted: {}, apple: { pack: { display_name: "A" } } });
+            expect(roomPackStateKeys(room)).toEqual(["", "apple", "zebra"]);
+        });
+
+        it("packStateKeyFromName should slug the name and avoid taken keys", () => {
+            expect(packStateKeyFromName("Hamster Jack!", new Set())).toBe("hamster-jack");
+            expect(packStateKeyFromName("Café cats", new Set())).toBe("cafe-cats");
+            expect(packStateKeyFromName("🐸", new Set())).toBe("pack");
+            expect(packStateKeyFromName("Pepe", new Set(["pepe", "pepe-2"]))).toBe("pepe-3");
+            expect(packStateKeyFromName("x".repeat(50), new Set()).length).toBe(32);
         });
     });
 

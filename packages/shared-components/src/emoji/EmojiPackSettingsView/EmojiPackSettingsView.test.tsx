@@ -19,6 +19,9 @@ class TestViewModel extends MockViewModel<EmojiPackSettingsViewSnapshot> {
     public rename = vi.fn();
     public remove = vi.fn();
     public dismissError = vi.fn();
+    public renamePack = vi.fn();
+    public setUsedEverywhere = vi.fn();
+    public deletePack = vi.fn();
 }
 
 const snapshot: EmojiPackSettingsViewSnapshot = {
@@ -26,6 +29,7 @@ const snapshot: EmojiPackSettingsViewSnapshot = {
         { shortcode: "blob", src: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" },
         { shortcode: "party", src: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" },
     ],
+    stickers: [],
     canEdit: true,
     busy: false,
 };
@@ -39,7 +43,9 @@ describe("EmojiPackSettingsView", () => {
         expect(within(rows[0]).getByRole("img", { name: ":blob:" })).toHaveAttribute("src", snapshot.emojis[0].src);
         expect(within(rows[0]).getByRole("textbox", { name: "Name for :blob:" })).toHaveValue("blob");
         expect(within(rows[0]).getByRole("button", { name: "Remove :blob:" })).toBeEnabled();
-        expect(screen.getByText(/PNG, GIF, WebP or JPEG, up to 512 KB/)).toBeInTheDocument();
+        expect(
+            within(screen.getByRole("region", { name: "Emoji" })).getByText(/PNG, GIF, WebP or JPEG, up to 512 KB/),
+        ).toBeInTheDocument();
     });
 
     it("uploads every chosen file and clears the picker", async () => {
@@ -52,7 +58,7 @@ describe("EmojiPackSettingsView", () => {
             new File(["b"], "dog.gif", { type: "image/gif" }),
         ];
         await userEvent.upload(input, files);
-        expect(vm.upload).toHaveBeenCalledExactlyOnceWith(files);
+        expect(vm.upload).toHaveBeenCalledExactlyOnceWith(files, "emoticon");
         expect(input).toHaveValue("");
     });
 
@@ -85,6 +91,9 @@ describe("EmojiPackSettingsView", () => {
             public upload = vi.fn();
             public remove = vi.fn();
             public dismissError = vi.fn();
+            public renamePack = vi.fn();
+            public setUsedEverywhere = vi.fn();
+            public deletePack = vi.fn();
             public rename = (): void => {
                 this.snapshot.merge({ busy: true });
                 void Promise.resolve().then(() => this.snapshot.merge({ busy: false, error: "Name taken" }));
@@ -152,5 +161,93 @@ describe("EmojiPackSettingsView", () => {
         expect(screen.getByRole("button", { name: "Remove :blob:" })).toBeDisabled();
         expect(screen.getByRole("textbox", { name: "Name for :blob:" })).toHaveAttribute("readonly");
         expect(screen.getByRole("progressbar", { name: "Saving emoji…" })).toBeInTheDocument();
+    });
+
+    describe("stickers", () => {
+        const withStickers: EmojiPackSettingsViewSnapshot = {
+            ...snapshot,
+            stickers: [{ shortcode: "pepe_wave", src: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" }],
+        };
+
+        it("lists stickers in their own section, bigger than emoji", () => {
+            render(<EmojiPackSettingsView vm={new TestViewModel(withStickers)} />);
+            const section = screen.getByRole("region", { name: "Stickers" });
+            expect(within(section).getByText("1 sticker")).toBeInTheDocument();
+            expect(within(section).getByRole("img", { name: ":pepe_wave:" })).toHaveAttribute("width", "64");
+            expect(within(section).getByRole("textbox", { name: "Name for :pepe_wave:" })).toHaveValue("pepe_wave");
+            expect(within(screen.getByRole("region", { name: "Emoji" })).getAllByRole("listitem")).toHaveLength(2);
+        });
+
+        it("uploads stickers as stickers", async () => {
+            const vm = new TestViewModel(withStickers);
+            const { container } = render(<EmojiPackSettingsView vm={vm} />);
+            expect(screen.getByRole("button", { name: "Upload stickers" })).toBeEnabled();
+            const input = container.querySelector<HTMLInputElement>('input[type="file"][data-usage="sticker"]')!;
+            const files = [new File(["a"], "frog.webp", { type: "image/webp" })];
+            await userEvent.upload(input, files);
+            expect(vm.upload).toHaveBeenCalledExactlyOnceWith(files, "sticker");
+        });
+
+        it("says when there are no stickers", () => {
+            render(<EmojiPackSettingsView vm={new TestViewModel(snapshot)} />);
+            expect(screen.getByText("No stickers yet.")).toBeInTheDocument();
+        });
+    });
+
+    describe("room pack header", () => {
+        const roomPack: EmojiPackSettingsViewSnapshot = {
+            ...snapshot,
+            name: "Pepe",
+            usedEverywhere: false,
+            canDelete: true,
+        };
+
+        it("is not shown for the personal pack", () => {
+            render(<EmojiPackSettingsView vm={new TestViewModel(snapshot)} />);
+            expect(screen.queryByRole("textbox", { name: "Pack name" })).not.toBeInTheDocument();
+            expect(screen.queryByRole("switch", { name: "Use in all my rooms" })).not.toBeInTheDocument();
+            expect(screen.queryByRole("button", { name: "Delete pack" })).not.toBeInTheDocument();
+        });
+
+        it("renames the pack on Enter", async () => {
+            const vm = new TestViewModel(roomPack);
+            render(<EmojiPackSettingsView vm={vm} />);
+            const name = screen.getByRole("textbox", { name: "Pack name" });
+            expect(name).toHaveValue("Pepe");
+            await userEvent.clear(name);
+            await userEvent.type(name, "Pepe classics{Enter}");
+            expect(vm.renamePack).toHaveBeenCalledExactlyOnceWith("Pepe classics");
+        });
+
+        it("shows the name as a heading without permission, and still offers the switch", async () => {
+            const vm = new TestViewModel({ ...roomPack, canEdit: false, canDelete: false });
+            render(<EmojiPackSettingsView vm={vm} />);
+            expect(screen.getByRole("heading", { name: "Pepe" })).toBeInTheDocument();
+            await userEvent.click(screen.getByRole("switch", { name: "Use in all my rooms" }));
+            expect(vm.setUsedEverywhere).toHaveBeenCalledExactlyOnceWith(true);
+        });
+
+        it("turns use everywhere off", async () => {
+            const vm = new TestViewModel({ ...roomPack, usedEverywhere: true });
+            render(<EmojiPackSettingsView vm={vm} />);
+            const toggle = screen.getByRole("switch", { name: "Use in all my rooms" });
+            expect(toggle).toBeChecked();
+            await userEvent.click(toggle);
+            expect(vm.setUsedEverywhere).toHaveBeenCalledExactlyOnceWith(false);
+        });
+
+        it("deletes the pack only after confirmation", async () => {
+            const vm = new TestViewModel(roomPack);
+            render(<EmojiPackSettingsView vm={vm} />);
+            await userEvent.click(screen.getByRole("button", { name: "Delete pack" }));
+            expect(
+                screen.getByText("Delete this pack and all its emoji and stickers for everyone?"),
+            ).toBeInTheDocument();
+            await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+            expect(vm.deletePack).not.toHaveBeenCalled();
+            await userEvent.click(screen.getByRole("button", { name: "Delete pack" }));
+            await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+            expect(vm.deletePack).toHaveBeenCalledTimes(1);
+        });
     });
 });

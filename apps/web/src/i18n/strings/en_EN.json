@@ -1713,7 +1713,10 @@
     "matcha_emoji": {
         "dialog_title": "<strong>Settings:</strong> Emoji",
         "error_dimensions": "%(name)s is larger than 1024 × 1024 pixels.",
+        "error_pack_create": "The pack could not be created. Check your connection, then try again.",
+        "error_pack_create_forbidden": "You don't have permission to add packs here.",
         "error_pack_full": "This pack is full. Remove some emoji before adding more.",
+        "error_pack_name": "Enter a name for the pack.",
         "error_save": "The emoji could not be saved. Check your connection and permissions, then try again.",
         "error_shortcode_invalid": "Emoji names must be 2 to 32 letters, numbers, hyphens or underscores.",
         "error_shortcode_taken": "An emoji named :%(code)s: already exists in this pack.",

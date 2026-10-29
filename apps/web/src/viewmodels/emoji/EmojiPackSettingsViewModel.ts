@@ -7,6 +7,7 @@ Please see LICENSE in the repository root for full details.
 
 import {
     BaseViewModel,
+    type EmojiPackImageUsage,
     type EmojiPackSettingsEmoji,
     type EmojiPackSettingsViewActions,
     type EmojiPackSettingsViewSnapshot,
@@ -27,21 +28,32 @@ import { _t } from "../../languageHandler";
 import { mediaFromMxc } from "../../customisations/Media";
 import {
     ACCEPTED_EMOJI_TYPES,
+    EMOTE_ROOMS_EVENT,
     MAX_EMOJI_FILE_SIZE,
     NEW_SHORTCODE_PATTERN,
     ROOM_EMOTES_EVENT,
     USER_EMOTES_EVENT,
+    isUsedEverywhere,
+    packDisplayName,
     parseEmojiImages,
+    parseStickerImages,
     shortcodeFromFileName,
     withImage,
+    withPackName,
     withRenamedImage,
+    withUsedEverywhere,
     withoutImage,
+    type CustomEmoji,
+    type EmoteRoomsContent,
     type ImagePackContent,
     type ImagePackImage,
 } from "../../utils/matcha/imagePacks";
 
-/** The pack being managed: a room's or Space's own pack (state key ""), or the user's personal pack. */
-export type EmojiPackTarget = { kind: "room"; room: Room } | { kind: "user" };
+/**
+ * The pack being managed: one of a room's or Space's packs (its state key; "" is the default pack, also when left
+ * out), or the user's personal pack.
+ */
+export type EmojiPackTarget = { kind: "room"; room: Room; stateKey?: string } | { kind: "user" };
 
 /** Properties of {@link EmojiPackSettingsViewModel}. */
 export interface EmojiPackSettingsViewModelProps {
@@ -98,8 +110,9 @@ async function imageSize(file: File): Promise<{ w: number; h: number } | undefin
 }
 
 /**
- * Uploads, renames and removes the custom emoji of one MSC2545 image pack. Images other clients stored in the
- * pack, including ones we do not show, are kept on every write.
+ * Uploads, renames and removes the custom emoji and stickers of one MSC2545 image pack, and names, deletes and
+ * enables everywhere a room's pack. Images other clients stored in the pack, including ones we do not show, are kept
+ * on every write.
  */
 export class EmojiPackSettingsViewModel
     extends BaseViewModel<EmojiPackSettingsViewSnapshot, EmojiPackSettingsViewModelProps>
@@ -116,30 +129,41 @@ export class EmojiPackSettingsViewModel
     private written?: { eventId: string; superseded: Set<string | undefined>; content: ImagePackContent };
 
     public constructor(props: EmojiPackSettingsViewModelProps) {
-        super(props, { emojis: [], canEdit: false, busy: false });
+        super(props, { emojis: [], stickers: [], canEdit: false, busy: false });
         const { client, target } = props;
-        if (target.kind === "user") {
-            this.disposables.trackListener(client, ClientEvent.AccountData, (event) => {
-                if ((event as MatrixEvent).getType() === USER_EMOTES_EVENT) this.refresh();
-            });
-        } else {
+        this.disposables.trackListener(client, ClientEvent.AccountData, (event) => {
+            const type = (event as MatrixEvent).getType();
+            if (type === (target.kind === "user" ? USER_EMOTES_EVENT : EMOTE_ROOMS_EVENT)) this.refresh();
+        });
+        if (target.kind === "room") {
             this.disposables.trackListener(client, RoomStateEvent.Events, (event) => {
                 const stateEvent = event as MatrixEvent;
-                if (stateEvent.getRoomId() === target.room.roomId && stateEvent.getType() === ROOM_EMOTES_EVENT) {
+                if (
+                    stateEvent.getRoomId() === target.room.roomId &&
+                    stateEvent.getType() === ROOM_EMOTES_EVENT &&
+                    stateEvent.getStateKey() === this.stateKey
+                ) {
                     this.refresh();
                 }
             });
             // Unlike Events, Update fires once members' power levels and membership reflect the new state.
             this.disposables.trackListener(client, RoomStateEvent.Update, (state) => {
                 if ((state as RoomState).roomId === target.room.roomId) {
-                    this.snapshot.merge({ canEdit: this.canEdit() });
+                    const canEdit = this.canEdit();
+                    this.snapshot.merge({ canEdit, canDelete: canEdit && this.stateKey !== "" });
                 }
             });
         }
         this.refresh();
     }
 
-    public upload = (files: File[]): void => {
+    /** The managed pack's state key; "" for the user's pack too, which has none. */
+    private get stateKey(): string {
+        const { target } = this.props;
+        return target.kind === "room" ? (target.stateKey ?? "") : "";
+    }
+
+    public upload = (files: File[], usage: EmojiPackImageUsage = "emoticon"): void => {
         // A started batch always finishes and writes, even if the settings close meanwhile.
         this.change(async () => {
             let error: string | undefined;
@@ -184,19 +208,14 @@ export class EmojiPackSettingsViewModel
             }
             if (!uploaded.length) return error;
 
-            // Name the new emoji against the latest pack, so nobody's image is replaced.
+            // Name the new images against the latest pack, so nobody's image is replaced.
             let content: ImagePackContent = this.latestContent() ?? {};
             const taken = new Set(Object.keys(content.images ?? {}));
-            // An image's own usage overrides the pack's, so new emoji stay emoji in another client's sticker pack.
-            const packUsage = content.pack?.usage;
-            const usage: Pick<ImagePackImage, "usage"> =
-                Array.isArray(packUsage) && packUsage.length && !packUsage.includes("emoticon")
-                    ? { usage: ["emoticon"] }
-                    : {};
             for (const { file, url, info } of uploaded) {
                 const shortcode = shortcodeFromFileName(file.name, taken);
                 taken.add(shortcode);
-                content = withImage(content, shortcode, { url, info, ...usage });
+                // Every new image says what it is for, so emoji are not offered as stickers and stickers not as emoji.
+                content = withImage(content, shortcode, { url, info, usage: [usage] });
             }
             await this.write(content);
             return error;
@@ -225,12 +244,62 @@ export class EmojiPackSettingsViewModel
         this.snapshot.merge({ error: undefined });
     };
 
-    private refresh(): void {
-        const emojis = parseEmojiImages(this.latestContent()).flatMap((emoji): EmojiPackSettingsEmoji[] => {
-            const src = mediaFromMxc(emoji.url, this.props.client).srcHttp;
-            return src ? [{ shortcode: emoji.shortcode, src }] : [];
+    public renamePack = (name: string): void => {
+        const trimmed = name.trim();
+        if (this.props.target.kind === "user" || !trimmed || trimmed === this.snapshot.current.name) return;
+        this.change(() => this.write(withPackName(this.latestContent(), trimmed)));
+    };
+
+    public deletePack = (): void => {
+        // The default pack stays: other clients and Matcha's own emoji settings expect it.
+        if (this.props.target.kind === "user" || this.stateKey === "") return;
+        this.change(() => this.write({}));
+    };
+
+    public setUsedEverywhere = (usedEverywhere: boolean): void => {
+        const { client, target } = this.props;
+        if (target.kind === "user") return;
+        this.change(async () => {
+            // Read just before writing, so packs enabled meanwhile elsewhere are kept.
+            const current = client.getAccountData(EMOTE_ROOMS_EVENT)?.getContent<EmoteRoomsContent>();
+            await client.setAccountData(
+                EMOTE_ROOMS_EVENT,
+                withUsedEverywhere(current, target.room.roomId, this.stateKey, usedEverywhere),
+            );
+            if (!this.isDisposed) this.refresh();
         });
-        this.snapshot.merge({ emojis, canEdit: this.canEdit() });
+    };
+
+    private refresh(): void {
+        const { client, target } = this.props;
+        const content = this.latestContent();
+        const toEntry = (image: CustomEmoji): EmojiPackSettingsEmoji[] => {
+            const src = mediaFromMxc(image.url, client).srcHttp;
+            return src ? [{ shortcode: image.shortcode, src }] : [];
+        };
+        // An image usable as both is listed once, under emoji.
+        const emojiImages = parseEmojiImages(content);
+        const emojiCodes = new Set(emojiImages.map((image) => image.shortcode));
+        const stickers = parseStickerImages(content)
+            .filter((image) => !emojiCodes.has(image.shortcode))
+            .flatMap(toEntry);
+        const canEdit = this.canEdit();
+        this.snapshot.merge({
+            emojis: emojiImages.flatMap(toEntry),
+            stickers,
+            canEdit,
+            canDelete: target.kind === "room" && canEdit && this.stateKey !== "",
+            ...(target.kind === "room"
+                ? {
+                      name: packDisplayName(content) ?? (this.stateKey === "" ? target.room.name : this.stateKey),
+                      usedEverywhere: isUsedEverywhere(
+                          client.getAccountData(EMOTE_ROOMS_EVENT)?.getContent(),
+                          target.room.roomId,
+                          this.stateKey,
+                      ),
+                  }
+                : {}),
+        });
     }
 
     private canEdit(): boolean {
@@ -248,7 +317,7 @@ export class EmojiPackSettingsViewModel
         const { client, target } = this.props;
         // setAccountData resolves only once the update is in the local store, so it never needs `written`.
         if (target.kind === "user") return client.getAccountData(USER_EMOTES_EVENT)?.getContent<ImagePackContent>();
-        const event = target.room.currentState.getStateEvents(ROOM_EMOTES_EVENT, "");
+        const event = target.room.currentState.getStateEvents(ROOM_EMOTES_EVENT, this.stateKey);
         if (this.written?.superseded.has(event?.getId())) return this.written.content;
         return event?.getContent<ImagePackContent>();
     }
@@ -259,12 +328,12 @@ export class EmojiPackSettingsViewModel
         if (target.kind === "user") {
             await client.setAccountData(USER_EMOTES_EVENT, content);
         } else {
-            const replacedEventId = target.room.currentState.getStateEvents(ROOM_EMOTES_EVENT, "")?.getId();
+            const replacedEventId = target.room.currentState.getStateEvents(ROOM_EMOTES_EVENT, this.stateKey)?.getId();
             const { event_id: eventId } = await client.sendStateEvent(
                 target.room.roomId,
                 ROOM_EMOTES_EVENT,
                 content,
-                "",
+                this.stateKey,
             );
             // An earlier write's echo may have landed during this one, so everything it superseded still counts.
             const superseded = new Set(this.written?.superseded).add(replacedEventId);

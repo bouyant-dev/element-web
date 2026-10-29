@@ -174,6 +174,51 @@ function packDetails(content: unknown): { name?: string; avatarUrl?: string } {
     };
 }
 
+/** The pack's own display name, when it has a valid one. */
+export function packDisplayName(content: unknown): string | undefined {
+    return packDetails(content).name;
+}
+
+/** Pack content with this display name, keeping every other field; the input is not changed. */
+export function withPackName(content: ImagePackContent | undefined, name: string): ImagePackContent {
+    const base = isObject(content) ? content : {};
+    return { ...base, pack: { ...(isObject(base.pack) ? base.pack : {}), display_name: name } };
+}
+
+/** The packs a room has in im.ponies.emote_rooms, or none. */
+function enabledPacksOf(content: unknown, roomId: string): Record<string, unknown> {
+    const rooms = isObject(content) && isObject(content.rooms) ? content.rooms : {};
+    const packs = Object.hasOwn(rooms, roomId) ? rooms[roomId] : undefined;
+    return isObject(packs) ? packs : {};
+}
+
+/** Whether im.ponies.emote_rooms enables this room pack everywhere. */
+export function isUsedEverywhere(content: unknown, roomId: string, stateKey: string): boolean {
+    const packs = enabledPacksOf(content, roomId);
+    return Object.hasOwn(packs, stateKey) && isObject(packs[stateKey]);
+}
+
+/**
+ * im.ponies.emote_rooms content with this room pack enabled or not, keeping every other entry and field; the input is
+ * not changed. Rooms left without packs are dropped.
+ */
+export function withUsedEverywhere(
+    content: EmoteRoomsContent | undefined,
+    roomId: string,
+    stateKey: string,
+    used: boolean,
+): EmoteRoomsContent {
+    const base = isObject(content) ? content : {};
+    const packs = enabledPacksOf(base, roomId);
+    // fromEntries makes own properties even for keys such as "__proto__".
+    const others = Object.entries(packs).filter(([key]) => key !== stateKey);
+    const kept = Object.hasOwn(packs, stateKey) && isObject(packs[stateKey]) ? packs[stateKey] : {};
+    const roomPacks = Object.fromEntries(used ? [...others, [stateKey, kept]] : others);
+    const rooms = Object.entries(isObject(base.rooms) ? base.rooms : {}).filter(([id]) => id !== roomId);
+    if (Object.keys(roomPacks).length) rooms.push([roomId, roomPacks]);
+    return { ...base, rooms: Object.fromEntries(rooms) as EmoteRoomsContent["rooms"] };
+}
+
 /**
  * The Spaces whose packs apply in a room, nearest first: those the room names in its own m.space.parent state, then
  * theirs. A Space cannot add its packs to a room just by listing it as a child.
@@ -287,6 +332,41 @@ function getPacks<T>(
     addRoomPacks(room);
     for (const spaceId of parentSpaceIds) addRoomPacks(joinedRoom(spaceId));
     return packs;
+}
+
+/** Every state key a room uses for packs, deleted ones included. */
+export function allRoomPackStateKeys(room: Room): Set<string> {
+    return new Set(room.currentState.getStateEvents(ROOM_EMOTES_EVENT).map((event) => event.getStateKey() ?? ""));
+}
+
+/**
+ * The room's packs to manage, by state key: the default pack ("") first, whether it exists yet or not, then every other
+ * pack in a stable order. Content {} marks a deleted pack, which is left out.
+ */
+export function roomPackStateKeys(room: Room): string[] {
+    const named = room.currentState
+        .getStateEvents(ROOM_EMOTES_EVENT)
+        .filter((event) => {
+            const content: unknown = event.getContent();
+            return !!event.getStateKey() && isObject(content) && Object.keys(content).length > 0;
+        })
+        .map((event) => event.getStateKey()!)
+        .sort((a, b) => a.localeCompare(b));
+    return ["", ...named];
+}
+
+/** A state key for a new pack, from its name, unique among `taken`. */
+export function packStateKeyFromName(name: string, taken: ReadonlySet<string>): string {
+    const base =
+        name
+            .normalize("NFKD")
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 32) || "pack";
+    let stateKey = base;
+    for (let n = 2; taken.has(stateKey); n++) stateKey = `${base}-${n}`;
+    return stateKey;
 }
 
 /** The first emoji with this shortcode (without colons), searching packs in order. */

@@ -1,0 +1,38 @@
+/*
+Copyright 2026 David
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+Please see LICENSE in the repository root for full details.
+*/
+
+.view {
+    color: var(--cpd-color-text-primary);
+}
+
+.form {
+    display: flex;
+    align-items: end;
+    gap: var(--cpd-space-3x);
+}
+
+.field {
+    flex: 1;
+    min-width: 0;
+}
+
+.secondary {
+    margin: 0;
+    color: var(--cpd-color-text-secondary);
+}
+
+.error {
+    padding: var(--cpd-space-2x) var(--cpd-space-3x);
+    border-radius: var(--cpd-space-2x);
+    color: var(--cpd-color-text-critical-primary);
+    background: var(--cpd-color-bg-critical-subtle);
+    border: var(--cpd-border-width-1) solid var(--cpd-color-border-critical-subtle);
+}
+
+.error p {
+    margin: 0;
+}

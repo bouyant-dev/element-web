@@ -23,6 +23,7 @@ import { stubClient } from "test-utils";
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { EmojiPackSettingsViewModel } from "./EmojiPackSettingsViewModel";
 import {
+    EMOTE_ROOMS_EVENT,
     MAX_EMOJI_FILE_SIZE,
     ROOM_EMOTES_EVENT,
     USER_EMOTES_EVENT,
@@ -91,11 +92,16 @@ describe("EmojiPackSettingsViewModel", () => {
         vi.restoreAllMocks();
     });
 
-    it("shows the pack's valid emoji with http URLs", () => {
+    it("shows the pack's valid emoji and stickers with http URLs, and the pack's name", () => {
         expect(vm.getSnapshot()).toEqual({
             emojis: [{ shortcode: "wave", src: "http://this.is.a.url/server/wave" }],
+            stickers: [{ shortcode: "hidden", src: "http://this.is.a.url/server/hidden" }],
             canEdit: true,
             busy: false,
+            name: "Crew",
+            usedEverywhere: false,
+            // The default pack stays.
+            canDelete: false,
         });
     });
 
@@ -169,6 +175,7 @@ describe("EmojiPackSettingsViewModel", () => {
         expect(content.images!.wave_2).toEqual({
             url: "mxc://server/wavegif",
             info: { w: 64, h: 32, mimetype: "image/gif", size: 300 },
+            usage: ["emoticon"],
         });
         expect(content.images!.wave_3.info?.size).toBe(400);
         expect(content.images!.hidden_2.info?.mimetype).toBe("image/webp");
@@ -384,7 +391,11 @@ describe("EmojiPackSettingsViewModel", () => {
         expect(client.setAccountData).toHaveBeenCalledWith(USER_EMOTES_EVENT, {
             images: {
                 smile: { url: "mxc://server/smile" },
-                smile_2: { url: "mxc://server/smilepng", info: { w: 64, h: 32, mimetype: "image/png", size: 10 } },
+                smile_2: {
+                    url: "mxc://server/smilepng",
+                    info: { w: 64, h: 32, mimetype: "image/png", size: 10 },
+                    usage: ["emoticon"],
+                },
             },
         });
 
@@ -394,5 +405,159 @@ describe("EmojiPackSettingsViewModel", () => {
         });
         client.emit(ClientEvent.AccountData, userPack);
         expect(vm.getSnapshot().emojis.map((emoji) => emoji.shortcode)).toEqual(["wink"]);
+        // The personal pack has no name, switch or deletion of its own.
+        expect(vm.getSnapshot()).not.toHaveProperty("name");
+        expect(vm.getSnapshot()).not.toHaveProperty("usedEverywhere");
+        expect(vm.getSnapshot().canDelete).toBe(false);
+        vm.deletePack();
+        vm.renamePack("Mine");
+        vm.setUsedEverywhere(true);
+        expect(vm.getSnapshot().busy).toBe(false);
+    });
+
+    it("uploads stickers as stickers and lists them apart from emoji", async () => {
+        vm.upload([image("frog.png")], "sticker");
+        await idle();
+        expect(written().images!.frog).toMatchObject({ url: "mxc://server/frogpng", usage: ["sticker"] });
+        expect(vm.getSnapshot().stickers.map((sticker) => sticker.shortcode)).toEqual(["frog", "hidden"]);
+        expect(vm.getSnapshot().emojis.map((emoji) => emoji.shortcode)).toEqual(["wave"]);
+    });
+
+    it("lists an image usable as both once, as an emoji", () => {
+        setState(
+            ROOM_EMOTES_EVENT,
+            { images: { both: { url: "mxc://server/both", usage: ["sticker", "emoticon"] } } },
+            "$both",
+        );
+        expect(vm.getSnapshot().emojis.map((emoji) => emoji.shortcode)).toEqual(["both"]);
+        expect(vm.getSnapshot().stickers).toEqual([]);
+    });
+
+    it("falls back to the room's name for the default pack", () => {
+        room.name = "Crew room";
+        setState(ROOM_EMOTES_EVENT, { images: {} }, "$unnamed");
+        expect(vm.getSnapshot().name).toBe("Crew room");
+    });
+
+    it("renames the pack, keeping every other field", async () => {
+        vm.renamePack("  Crew classics ");
+        await idle();
+        expect(written()).toEqual({
+            images: {
+                wave: { url: "mxc://server/wave" },
+                hidden: { url: "mxc://server/hidden", usage: ["sticker"] },
+                broken: { url: "https://example.org/broken.png" },
+            },
+            pack: { display_name: "Crew classics", custom: 1 },
+            other_client_field: true,
+        });
+        expect(vm.getSnapshot().name).toBe("Crew classics");
+
+        vi.mocked(client.sendStateEvent).mockClear();
+        vm.renamePack("   ");
+        vm.renamePack("Crew classics");
+        expect(client.sendStateEvent).not.toHaveBeenCalled();
+    });
+
+    describe("a named pack", () => {
+        let named: EmojiPackSettingsViewModel;
+
+        beforeEach(() => {
+            setState(
+                ROOM_EMOTES_EVENT,
+                { images: { frog: { url: "mxc://server/frog", usage: ["sticker"] } }, pack: { display_name: "Pepe" } },
+                "$pepe",
+                "pepe",
+            );
+            named = new EmojiPackSettingsViewModel({ client, target: { kind: "room", room, stateKey: "pepe" } });
+        });
+
+        afterEach(() => {
+            named.dispose();
+        });
+
+        it("reads and writes its own state key", async () => {
+            expect(named.getSnapshot()).toMatchObject({ name: "Pepe", canDelete: true, emojis: [] });
+            expect(named.getSnapshot().stickers.map((sticker) => sticker.shortcode)).toEqual(["frog"]);
+
+            // The default pack changing does not change this one.
+            setState(ROOM_EMOTES_EVENT, { images: { cat: { url: "mxc://server/cat" } } }, "$pack2");
+            expect(named.getSnapshot().stickers.map((sticker) => sticker.shortcode)).toEqual(["frog"]);
+
+            named.upload([image("pepe_cry.png")], "sticker");
+            await vi.waitFor(() => expect(named.getSnapshot().busy).toBe(false));
+            expect(client.sendStateEvent).toHaveBeenCalledWith(
+                room.roomId,
+                ROOM_EMOTES_EVENT,
+                expect.anything(),
+                "pepe",
+            );
+            expect(Object.keys(written().images!)).toEqual(["frog", "pepe_cry"]);
+        });
+
+        it("is named after its state key when it has no name", () => {
+            setState(ROOM_EMOTES_EVENT, { images: {} }, "$pepe2", "pepe");
+            expect(named.getSnapshot().name).toBe("pepe");
+        });
+
+        it("deletes itself by writing empty content; the default pack cannot be deleted", async () => {
+            vm.deletePack();
+            named.deletePack();
+            await vi.waitFor(() => expect(named.getSnapshot().busy).toBe(false));
+            expect(client.sendStateEvent).toHaveBeenCalledExactlyOnceWith(room.roomId, ROOM_EMOTES_EVENT, {}, "pepe");
+        });
+
+        it("cannot be deleted without permission", () => {
+            setState(EventType.RoomPowerLevels, { users: { [me]: 0 }, state_default: 50 }, "$pl2");
+            expect(named.getSnapshot()).toMatchObject({ canEdit: false, canDelete: false });
+        });
+    });
+
+    describe("use everywhere", () => {
+        let emoteRooms: object | undefined;
+
+        beforeEach(() => {
+            emoteRooms = { rooms: { "!other:server": { fav: { extra: 1 } }, [room.roomId]: { stickers: {} } }, v: 2 };
+            vi.mocked(client.getAccountData).mockImplementation((type) =>
+                type === EMOTE_ROOMS_EVENT && emoteRooms ? new MatrixEvent({ type, content: emoteRooms }) : undefined,
+            );
+            vi.mocked(client.setAccountData).mockResolvedValue({});
+        });
+
+        it("adds and removes the pack, keeping every other entry, and follows account data", async () => {
+            vm.setUsedEverywhere(true);
+            await idle();
+            expect(client.setAccountData).toHaveBeenLastCalledWith(EMOTE_ROOMS_EVENT, {
+                rooms: { "!other:server": { fav: { extra: 1 } }, [room.roomId]: { "stickers": {}, "": {} } },
+                v: 2,
+            });
+
+            emoteRooms = { rooms: { [room.roomId]: { "": {}, "stickers": {} } } };
+            client.emit(ClientEvent.AccountData, new MatrixEvent({ type: EMOTE_ROOMS_EVENT, content: emoteRooms }));
+            expect(vm.getSnapshot().usedEverywhere).toBe(true);
+
+            vm.setUsedEverywhere(false);
+            await idle();
+            expect(client.setAccountData).toHaveBeenLastCalledWith(EMOTE_ROOMS_EVENT, {
+                rooms: { [room.roomId]: { stickers: {} } },
+            });
+        });
+
+        it("starts the account data when there is none", async () => {
+            emoteRooms = undefined;
+            vm.setUsedEverywhere(true);
+            await idle();
+            expect(client.setAccountData).toHaveBeenCalledWith(EMOTE_ROOMS_EVENT, {
+                rooms: { [room.roomId]: { "": {} } },
+            });
+        });
+
+        it("is offered to members who cannot edit the pack", async () => {
+            setState(EventType.RoomPowerLevels, { users: { [me]: 0 }, state_default: 50 }, "$pl2");
+            expect(vm.getSnapshot().canEdit).toBe(false);
+            vm.setUsedEverywhere(true);
+            await idle();
+            expect(client.setAccountData).toHaveBeenCalled();
+        });
     });
 });

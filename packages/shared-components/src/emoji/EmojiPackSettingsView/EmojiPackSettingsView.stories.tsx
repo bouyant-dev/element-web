@@ -25,9 +25,20 @@ const EmojiPackSettingsViewWrapperImpl = ({
     rename,
     remove,
     dismissError,
+    renamePack,
+    setUsedEverywhere,
+    deletePack,
     ...rest
 }: EmojiPackSettingsProps): JSX.Element => {
-    const vm = useMockedViewModel(rest, { upload, rename, remove, dismissError });
+    const vm = useMockedViewModel(rest, {
+        upload,
+        rename,
+        remove,
+        dismissError,
+        renamePack,
+        setUsedEverywhere,
+        deletePack,
+    });
     return <EmojiPackSettingsView vm={vm} />;
 };
 const EmojiPackSettingsViewWrapper = withViewDocs(EmojiPackSettingsViewWrapperImpl, EmojiPackSettingsView);
@@ -54,12 +65,19 @@ const meta = {
     tags: ["autodocs"],
     args: {
         emojis,
+        stickers: [
+            { shortcode: "frog_wave", src: face("#66bb6a") },
+            { shortcode: "frog_cry", src: face("#29b6f6") },
+        ],
         canEdit: true,
         busy: false,
         upload: fn(),
         rename: fn(),
         remove: fn(),
         dismissError: fn(),
+        renamePack: fn(),
+        setUsedEverywhere: fn(),
+        deletePack: fn(),
     },
 } satisfies Meta<typeof EmojiPackSettingsViewWrapper>;
 
@@ -73,7 +91,15 @@ export const ReadOnly: Story = {
 };
 
 export const Empty: Story = {
-    args: { emojis: [] },
+    args: { emojis: [], stickers: [] },
+};
+
+export const RoomPack: Story = {
+    args: { name: "Pepe", usedEverywhere: true, canDelete: true },
+};
+
+export const RoomPackReadOnly: Story = {
+    args: { name: "Pepe", usedEverywhere: false, canEdit: false },
 };
 
 export const WithError: Story = {

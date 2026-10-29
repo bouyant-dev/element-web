@@ -74,3 +74,23 @@ Please see LICENSE in the repository root for full details.
     padding: 0 var(--cpd-space-2x);
     overflow-wrap: anywhere;
 }
+
+.header {
+    padding-bottom: var(--cpd-space-3x);
+    border-bottom: var(--cpd-border-width-1) solid var(--cpd-color-border-interactive-secondary);
+}
+
+.packName {
+    flex: none;
+    width: 100%;
+    font: var(--cpd-font-heading-sm-semibold);
+}
+
+.packTitle,
+.sectionHeading {
+    margin: 0;
+}
+
+.deletePack {
+    align-self: start;
+}

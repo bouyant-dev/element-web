@@ -102,14 +102,19 @@ jobs:
                     apps/web/src/hooks/useCustomEmojiPacks.test.ts \
                     apps/web/src/viewmodels/emoji/StickerPickerViewModel.test.ts \
                     apps/web/src/components/views/rooms/MessageComposerButtons.test.tsx \
-                    apps/web/src/components/views/rooms/MessageComposer.test.tsx
+                    apps/web/src/components/views/rooms/MessageComposer.test.tsx \
+                    apps/web/src/viewmodels/emoji/EmojiPackSettingsViewModel.test.ts \
+                    apps/web/src/viewmodels/emoji/RoomEmojiPacksViewModel.test.ts \
+                    apps/web/src/components/views/settings/tabs/room/EmojiRoomSettingsTab.test.tsx
                   pnpm --dir packages/shared-components exec vitest run --project unit \
                     src/room/RoomThreadTabs/RoomThreadTabsView.test.tsx \
                     src/room/KanbanBoard/KanbanBoardView.test.tsx \
                     src/room/RoomDocs/RoomDocsView.test.tsx \
                     src/room/SpaceDocsSetup/SpaceDocsSetupView.test.tsx \
                     src/room/RoomReminder/RoomReminderView.test.tsx \
-                    src/emoji/StickerPickerView/StickerPickerView.test.tsx
+                    src/emoji/StickerPickerView/StickerPickerView.test.tsx \
+                    src/emoji/EmojiPackSettingsView/EmojiPackSettingsView.test.tsx \
+                    src/emoji/NewEmojiPackView/NewEmojiPackView.test.tsx
                   pnpm --dir apps/web lint:types
                   pnpm --dir packages/shared-components lint:types
 
@@ -130,7 +135,9 @@ jobs:
               run: |
                   pnpm --dir apps/web exec playwright test \
                     playwright/e2e/threads/matcha-thread-tabs.spec.ts \
-                    playwright/e2e/room/matcha-docs.spec.ts --project=Chrome
+                    playwright/e2e/room/matcha-docs.spec.ts \
+                    playwright/e2e/room/matcha-custom-emoji.spec.ts \
+                    playwright/e2e/room/matcha-stickers.spec.ts --project=Chrome
 
             - name: Build the runtime image
               env:
