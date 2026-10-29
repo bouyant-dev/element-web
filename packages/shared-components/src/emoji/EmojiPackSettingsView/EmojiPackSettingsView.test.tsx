@@ -136,7 +136,7 @@ describe("EmojiPackSettingsView", () => {
         expect(screen.queryByRole("button")).not.toBeInTheDocument();
         expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
         expect(screen.getByText("blob")).toBeInTheDocument();
-        expect(screen.getByText("You don't have permission to change these emoji.")).toBeInTheDocument();
+        expect(screen.getByText("You don't have permission to change this pack.")).toBeInTheDocument();
     });
 
     it("shows an error that can be dismissed", async () => {
@@ -160,7 +160,25 @@ describe("EmojiPackSettingsView", () => {
         expect(screen.getByRole("button", { name: "Upload emoji" })).toBeDisabled();
         expect(screen.getByRole("button", { name: "Remove :blob:" })).toBeDisabled();
         expect(screen.getByRole("textbox", { name: "Name for :blob:" })).toHaveAttribute("readonly");
-        expect(screen.getByRole("progressbar", { name: "Saving emoji…" })).toBeInTheDocument();
+        expect(screen.getByRole("progressbar", { name: "Saving…" })).toBeInTheDocument();
+    });
+
+    it("shows upload progress in the section that started the upload", () => {
+        render(
+            <EmojiPackSettingsView
+                vm={
+                    new TestViewModel({
+                        ...snapshot,
+                        busy: true,
+                        uploading: { usage: "sticker", current: 3, total: 64 },
+                    })
+                }
+            />,
+        );
+        const stickers = screen.getByRole("region", { name: "Stickers" });
+        expect(within(stickers).getByRole("status")).toHaveTextContent("Uploading 3 of 64…");
+        expect(within(screen.getByRole("region", { name: "Emoji" })).queryByRole("status")).not.toBeInTheDocument();
+        expect(screen.queryByRole("progressbar", { name: "Saving…" })).not.toBeInTheDocument();
     });
 
     describe("stickers", () => {

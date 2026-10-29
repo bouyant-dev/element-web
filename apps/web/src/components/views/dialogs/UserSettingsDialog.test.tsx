@@ -140,7 +140,9 @@ describe("<UserSettingsDialog />", () => {
         SdkConfig.add({ matcha_thread_tabs: true });
         render(getComponent({ initialTabId: UserTab.Emoji }));
         expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings: Emoji");
-        expect(screen.getByText(/Your emoji work in every room.*aren't end-to-end encrypted/)).toBeInTheDocument();
+        expect(
+            screen.getByText(/Your emoji and stickers work in every room.*aren't end-to-end encrypted/),
+        ).toBeInTheDocument();
     });
 
     it("renders with session manager tab selected", () => {

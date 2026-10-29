@@ -10,6 +10,7 @@ import { type Room } from "matrix-js-sdk/src/matrix";
 
 import { type ActionPayload } from "../payloads";
 import { type Action } from "../actions";
+import { type SpaceSettingsTab } from "../../components/views/dialogs/SpaceSettingsDialog";
 
 export interface OpenSpaceSettingsPayload extends ActionPayload {
     action: Action.OpenSpaceSettings;
@@ -18,4 +19,9 @@ export interface OpenSpaceSettingsPayload extends ActionPayload {
      * The space to open settings for.
      */
     space: Room;
+
+    /**
+     * The tab to open on; General when left out.
+     */
+    initialTabId?: SpaceSettingsTab;
 }

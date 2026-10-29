@@ -57,8 +57,8 @@ test.describe("Matcha stickers", () => {
         await app.viewRoomById(roomId);
         await dismissPrompts(page);
 
-        // a) Create a named pack in the room's Emoji settings and upload a sticker to it.
-        const settings = await app.settings.openRoomSettings("Emoji");
+        // a) Create a named pack in the room's Emoji and stickers settings and upload a sticker to it.
+        const settings = await app.settings.openRoomSettings("Emoji and stickers");
         await settings.getByRole("textbox", { name: "New pack name", exact: true }).fill("Test stickers");
         await settings.getByRole("button", { name: "Create pack", exact: true }).click();
         // The default pack comes first, named after the room; the new pack follows once its state arrives.
@@ -94,6 +94,9 @@ test.describe("Matcha stickers", () => {
         expect(sticker.content?.url).toMatch(/^mxc:\/\//);
         expect(sticker.content?.body).toBe("wave");
         expect(sticker.content?.info).toMatchObject({ mimetype: "image/png" });
-        await expect(page.locator(".mx_EventTile .mx_MStickerBody_wrapper img")).toBeVisible();
+        // The tile also holds a hidden placeholder image, so look for the sticker by its name.
+        await expect(
+            page.locator(".mx_EventTile .mx_MStickerBody_wrapper").getByRole("img", { name: "wave", exact: true }),
+        ).toBeVisible();
     });
 });

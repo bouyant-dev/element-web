@@ -47,6 +47,8 @@ export interface EmojiPackSettingsViewSnapshot {
     usedEverywhere?: boolean;
     /** Whether the user may delete the whole pack. */
     canDelete?: boolean;
+    /** The upload in progress: what it adds, and which of its files is being handled. */
+    uploading?: { usage: EmojiPackImageUsage; current: number; total: number };
 }
 
 /** Pack commands; validation and persistence belong to the view model. */
@@ -261,6 +263,7 @@ function ImageSection({
     canEdit,
     busy,
     error,
+    uploading,
     vm,
 }: {
     usage: EmojiPackImageUsage;
@@ -268,6 +271,7 @@ function ImageSection({
     canEdit: boolean;
     busy: boolean;
     error?: string;
+    uploading?: EmojiPackSettingsViewSnapshot["uploading"];
     vm: EmojiPackSettingsViewModel;
 }): JSX.Element {
     const fileInput = useRef<HTMLInputElement>(null);
@@ -290,7 +294,22 @@ function ImageSection({
                         >
                             {stickers ? _t("matcha_emoji|upload_stickers") : _t("matcha_emoji|upload")}
                         </Button>
-                        {busy && !stickers && <InlineSpinner role="progressbar" aria-label={_t("matcha_emoji|busy")} />}
+                        {uploading?.usage === usage ? (
+                            <Flex align="center" gap="var(--cpd-space-2x)">
+                                <InlineSpinner />
+                                <Text size="sm" role="status" className={styles.secondary}>
+                                    {_t("matcha_emoji|uploading", {
+                                        current: uploading.current,
+                                        total: uploading.total,
+                                    })}
+                                </Text>
+                            </Flex>
+                        ) : (
+                            // Other changes show their spinner by the first upload button.
+                            busy &&
+                            !uploading &&
+                            !stickers && <InlineSpinner role="progressbar" aria-label={_t("matcha_emoji|busy")} />
+                        )}
                     </Flex>
                     <input
                         ref={fileInput}
@@ -343,7 +362,7 @@ function ImageSection({
 
 /** Discord-style management of one custom emoji pack: its emoji and stickers, and for room packs its name. */
 export function EmojiPackSettingsView({ vm }: { vm: EmojiPackSettingsViewModel }): JSX.Element {
-    const { emojis, stickers, canEdit, busy, error, name, usedEverywhere, canDelete } = useViewModel(vm);
+    const { emojis, stickers, canEdit, busy, error, name, usedEverywhere, canDelete, uploading } = useViewModel(vm);
     return (
         <Flex direction="column" gap="var(--cpd-space-4x)" className={styles.view}>
             {(name !== undefined || usedEverywhere !== undefined || canDelete) && (
@@ -371,8 +390,24 @@ export function EmojiPackSettingsView({ vm }: { vm: EmojiPackSettingsViewModel }
                     </IconButton>
                 </Flex>
             )}
-            <ImageSection usage="emoticon" images={emojis} canEdit={canEdit} busy={busy} error={error} vm={vm} />
-            <ImageSection usage="sticker" images={stickers} canEdit={canEdit} busy={busy} error={error} vm={vm} />
+            <ImageSection
+                usage="emoticon"
+                images={emojis}
+                canEdit={canEdit}
+                busy={busy}
+                error={error}
+                uploading={uploading}
+                vm={vm}
+            />
+            <ImageSection
+                usage="sticker"
+                images={stickers}
+                canEdit={canEdit}
+                busy={busy}
+                error={error}
+                uploading={uploading}
+                vm={vm}
+            />
             {!canEdit && (
                 <Text size="sm" className={styles.secondary}>
                     {_t("matcha_emoji|read_only")}

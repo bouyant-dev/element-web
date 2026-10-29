@@ -244,13 +244,13 @@ describe("EmojiPackSettingsViewModel", () => {
         );
         vm.upload([image("cat.png")]);
         await idle();
-        expect(vm.getSnapshot().error).toBe("This pack is full. Remove some emoji before adding more.");
+        expect(vm.getSnapshot().error).toBe("This pack is full. Remove some images before adding more.");
         expect(client.uploadContent).not.toHaveBeenCalled();
 
         vi.mocked(client.sendStateEvent).mockRejectedValue(new MatrixError({ errcode: "M_TOO_LARGE" }, 413));
         vm.rename("big", "bigger");
         await idle();
-        expect(vm.getSnapshot().error).toBe("This pack is full. Remove some emoji before adding more.");
+        expect(vm.getSnapshot().error).toBe("This pack is full. Remove some images before adding more.");
     });
 
     it("finishes an upload started before the settings closed", async () => {
@@ -338,11 +338,11 @@ describe("EmojiPackSettingsViewModel", () => {
     it("validates new names and keeps the image object when renaming", async () => {
         vm.rename("wave", "a");
         await idle();
-        expect(vm.getSnapshot().error).toBe("Emoji names must be 2 to 32 letters, numbers, hyphens or underscores.");
+        expect(vm.getSnapshot().error).toBe("Names must be 2 to 32 letters, numbers, hyphens or underscores.");
 
         vm.rename("wave", "hidden");
         await idle();
-        expect(vm.getSnapshot().error).toBe("An emoji named :hidden: already exists in this pack.");
+        expect(vm.getSnapshot().error).toBe("An image named :hidden: already exists in this pack.");
         expect(client.sendStateEvent).not.toHaveBeenCalled();
 
         vm.rename("wave", "hello-there");
@@ -367,7 +367,7 @@ describe("EmojiPackSettingsViewModel", () => {
         vm.remove("wave");
         await idle();
         expect(vm.getSnapshot().error).toBe(
-            "The emoji could not be saved. Check your connection and permissions, then try again.",
+            "The pack could not be saved. Check your connection and permissions, then try again.",
         );
         expect(vm.getSnapshot().emojis.map((emoji) => emoji.shortcode)).toEqual(["wave"]);
     });
@@ -459,6 +459,26 @@ describe("EmojiPackSettingsViewModel", () => {
         expect(client.sendStateEvent).not.toHaveBeenCalled();
     });
 
+    it("refuses pack names longer than 100 characters", () => {
+        vm.renamePack("x".repeat(101));
+        expect(vm.getSnapshot().error).toBe("Pack names can be at most 100 characters.");
+        expect(client.sendStateEvent).not.toHaveBeenCalled();
+    });
+
+    it("says which file of a batch it is uploading, and for which section", async () => {
+        let release!: () => void;
+        vi.mocked(client.uploadContent).mockImplementationOnce(async () => {
+            await new Promise<void>((resolve) => (release = resolve));
+            return { content_uri: "mxc://server/first" };
+        });
+        vm.upload([image("first.png"), image("second.png")], "sticker");
+        await vi.waitFor(() => expect(vm.getSnapshot().uploading).toEqual({ usage: "sticker", current: 1, total: 2 }));
+        release();
+        await idle();
+        expect(vm.getSnapshot().uploading).toBeUndefined();
+        expect(Object.keys(written().images!)).toEqual(expect.arrayContaining(["first", "second"]));
+    });
+
     describe("a named pack", () => {
         let named: EmojiPackSettingsViewModel;
 
@@ -505,6 +525,8 @@ describe("EmojiPackSettingsViewModel", () => {
             named.deletePack();
             await vi.waitFor(() => expect(named.getSnapshot().busy).toBe(false));
             expect(client.sendStateEvent).toHaveBeenCalledExactlyOnceWith(room.roomId, ROOM_EMOTES_EVENT, {}, "pepe");
+            // It was not in the user's list of packs used everywhere, so that list is left alone.
+            expect(client.setAccountData).not.toHaveBeenCalled();
         });
 
         it("cannot be deleted without permission", () => {
@@ -558,6 +580,44 @@ describe("EmojiPackSettingsViewModel", () => {
             vm.setUsedEverywhere(true);
             await idle();
             expect(client.setAccountData).toHaveBeenCalled();
+        });
+
+        it("keeps both packs when two packs' switches are flipped together", async () => {
+            // Like the real client, setAccountData resolves only once its echo is in the store.
+            vi.mocked(client.setAccountData).mockImplementation(async (_type, content) => {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                emoteRooms = content as object;
+                return {};
+            });
+            const named = new EmojiPackSettingsViewModel({ client, target: { kind: "room", room, stateKey: "pepe" } });
+            vm.setUsedEverywhere(true);
+            named.setUsedEverywhere(true);
+            await vi.waitFor(() => expect(client.setAccountData).toHaveBeenCalledTimes(2));
+            await vi.waitFor(() => expect(named.getSnapshot().busy).toBe(false));
+            expect(emoteRooms).toEqual({
+                rooms: {
+                    "!other:server": { fav: { extra: 1 } },
+                    [room.roomId]: { "stickers": {}, "": {}, "pepe": {} },
+                },
+                v: 2,
+            });
+            named.dispose();
+        });
+
+        it("drops a deleted pack from the user's own list", async () => {
+            const named = new EmojiPackSettingsViewModel({
+                client,
+                target: { kind: "room", room, stateKey: "stickers" },
+            });
+            named.deletePack();
+            await vi.waitFor(() => expect(client.setAccountData).toHaveBeenCalled());
+            await vi.waitFor(() => expect(named.getSnapshot().busy).toBe(false));
+            expect(client.sendStateEvent).toHaveBeenCalledWith(room.roomId, ROOM_EMOTES_EVENT, {}, "stickers");
+            expect(client.setAccountData).toHaveBeenCalledWith(EMOTE_ROOMS_EVENT, {
+                rooms: { "!other:server": { fav: { extra: 1 } } },
+                v: 2,
+            });
+            named.dispose();
         });
     });
 });

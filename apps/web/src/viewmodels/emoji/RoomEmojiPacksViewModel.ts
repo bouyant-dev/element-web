@@ -18,16 +18,18 @@ import {
     type Room,
     type RoomState,
 } from "matrix-js-sdk/src/matrix";
-import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 import { isEqual } from "lodash";
 
 import { _t } from "../../languageHandler";
 import {
+    MAX_PACK_NAME_LENGTH,
     ROOM_EMOTES_EVENT,
     allRoomPackStateKeys,
+    canEditRoomPacks,
     packStateKeyFromName,
     roomPackStateKeys,
+    setPackUsedEverywhere,
     type ImagePackContent,
 } from "../../utils/matcha/imagePacks";
 
@@ -68,6 +70,10 @@ export class RoomEmojiPacksViewModel
             this.snapshot.merge({ error: _t("matcha_emoji|error_pack_name") });
             return;
         }
+        if (displayName.length > MAX_PACK_NAME_LENGTH) {
+            this.snapshot.merge({ error: _t("matcha_emoji|error_pack_name_length", { max: MAX_PACK_NAME_LENGTH }) });
+            return;
+        }
         const { client, room } = this.props;
         const stateKey = packStateKeyFromName(displayName, allRoomPackStateKeys(room));
         const content: ImagePackContent = { pack: { display_name: displayName }, images: {} };
@@ -75,7 +81,11 @@ export class RoomEmojiPacksViewModel
         client
             .sendStateEvent(room.roomId, ROOM_EMOTES_EVENT, content, stateKey)
             // ponytail: the pack is listed once its state echo arrives, so an upload never writes it without its name.
-            .then(() => {
+            .then(async () => {
+                // Phones find a room's named packs only through this list, so the creator's phones get it straight away.
+                await setPackUsedEverywhere(client, room.roomId, stateKey, true).catch((e) =>
+                    logger.warn("Failed to offer a new custom emoji pack in every room", e),
+                );
                 if (!this.isDisposed) this.snapshot.merge({ busy: false });
             })
             .catch((e) => {
@@ -99,10 +109,7 @@ export class RoomEmojiPacksViewModel
         if (this.isDisposed) return;
         const { client, room } = this.props;
         const next = roomPackStateKeys(room);
-        const me = client.getSafeUserId();
-        const canCreate =
-            room.currentState.getMember(me)?.membership === KnownMembership.Join &&
-            room.currentState.maySendStateEvent(ROOM_EMOTES_EVENT, me);
+        const canCreate = canEditRoomPacks(room, client.getSafeUserId());
         this.snapshot.merge({
             // Keep the array when nothing changed, so the tab does not re-render every pack.
             stateKeys: isEqual(next, this.snapshot.current.stateKeys) ? this.snapshot.current.stateKeys : next,

@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { NewEmojiPackView, type NewEmojiPackViewSnapshot } from "./NewEmojiPackView";
 import { MockViewModel } from "../../core/viewmodel/MockViewModel";
+import { BaseViewModel } from "../../core/viewmodel/BaseViewModel";
 
 class TestViewModel extends MockViewModel<NewEmojiPackViewSnapshot> {
     public createPack = vi.fn();
@@ -28,6 +29,31 @@ describe("NewEmojiPackView", () => {
         await userEvent.type(name, "Hamster Jack{Enter}");
         expect(vm.createPack).toHaveBeenCalledExactlyOnceWith("Hamster Jack");
         expect(name).toHaveValue("");
+    });
+
+    it("keeps the typed name when creating fails, and clears it once a pack is created", async () => {
+        class LiveViewModel extends BaseViewModel<NewEmojiPackViewSnapshot, undefined> {
+            public fail = true;
+            public constructor() {
+                super(undefined, { canCreate: true, busy: false });
+            }
+            public dismissError = vi.fn();
+            public createPack = (): void => {
+                this.snapshot.merge({ busy: true, error: undefined });
+                const error = this.fail ? "The pack could not be created." : undefined;
+                void Promise.resolve().then(() => this.snapshot.merge({ busy: false, error }));
+            };
+        }
+        const vm = new LiveViewModel();
+        render(<NewEmojiPackView vm={vm} />);
+        const name = screen.getByRole("textbox", { name: "New pack name" });
+        await userEvent.type(name, "Cats{Enter}");
+        await screen.findByRole("alert");
+        expect(name).toHaveValue("Cats");
+
+        vm.fail = false;
+        await userEvent.click(screen.getByRole("button", { name: "Create pack" }));
+        await vi.waitFor(() => expect(name).toHaveValue(""));
     });
 
     it("ignores a blank name and waits while busy", async () => {

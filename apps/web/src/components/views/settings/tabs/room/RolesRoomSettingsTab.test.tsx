@@ -287,12 +287,14 @@ describe("RolesRoomSettingsTab", () => {
             vi.mocked(cli.getRoom).mockReturnValue(room);
             vi.mocked(room.currentState.mayClientSendStateEvent).mockReturnValue(true);
             const { container, unmount } = await renderTab();
-            expect(container.querySelector(`[placeholder="Manage emoji"]`)).toBeNull();
+            expect(container.querySelector(`[placeholder="Manage emoji and stickers"]`)).toBeNull();
             unmount();
 
             SdkConfig.add({ matcha_thread_tabs: true });
             const tab = await renderTab();
-            fireEvent.change(tab.container.querySelector(`[placeholder="Manage emoji"]`)!, { target: { value: "0" } });
+            fireEvent.change(tab.container.querySelector(`[placeholder="Manage emoji and stickers"]`)!, {
+                target: { value: "0" },
+            });
 
             expect(cli.sendStateEvent).toHaveBeenCalledWith(
                 room.roomId,

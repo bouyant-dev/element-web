@@ -97,6 +97,7 @@ export class DialogOpener {
                     {
                         matrixClient: payload.space.client,
                         space: payload.space,
+                        initialTabId: payload.initialTabId,
                     },
                     /*className=*/ undefined,
                     /*isPriority=*/ false,

@@ -43,10 +43,12 @@ export enum SpaceSettingsTab {
 interface IProps {
     matrixClient: MatrixClient;
     space: Room;
+    /** The tab to open on; General when left out. */
+    initialTabId?: SpaceSettingsTab;
     onFinished(this: void): void;
 }
 
-const SpaceSettingsDialog: React.FC<IProps> = ({ matrixClient: cli, space, onFinished }) => {
+const SpaceSettingsDialog: React.FC<IProps> = ({ matrixClient: cli, space, initialTabId, onFinished }) => {
     useDispatcher(defaultDispatcher, (payload) => {
         if (payload.action === Action.AfterLeaveRoom && payload.room_id === space.roomId) {
             onFinished();
@@ -101,7 +103,7 @@ const SpaceSettingsDialog: React.FC<IProps> = ({ matrixClient: cli, space, onFin
         ].filter(Boolean) as NonEmptyArray<Tab<SpaceSettingsTab>>;
     }, [cli, space, onFinished]);
 
-    const [activeTabId, setActiveTabId] = React.useState(SpaceSettingsTab.General);
+    const [activeTabId, setActiveTabId] = React.useState(initialTabId ?? SpaceSettingsTab.General);
 
     return (
         <BaseDialog

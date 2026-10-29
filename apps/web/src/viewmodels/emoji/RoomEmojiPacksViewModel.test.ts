@@ -14,7 +14,7 @@ import { stubClient } from "test-utils";
 
 import { MatrixClientPeg } from "../../MatrixClientPeg";
 import { RoomEmojiPacksViewModel } from "./RoomEmojiPacksViewModel";
-import { ROOM_EMOTES_EVENT } from "../../utils/matcha/imagePacks";
+import { EMOTE_ROOMS_EVENT, ROOM_EMOTES_EVENT } from "../../utils/matcha/imagePacks";
 
 describe("RoomEmojiPacksViewModel", () => {
     let client: MatrixClient;
@@ -49,6 +49,7 @@ describe("RoomEmojiPacksViewModel", () => {
         setState(ROOM_EMOTES_EVENT, { pack: { display_name: "Pepe" }, images: {} }, "$pepe", "pepe");
         setState(ROOM_EMOTES_EVENT, {}, "$gone", "gone");
         vi.mocked(client.sendStateEvent).mockResolvedValue({ event_id: "$sent" });
+        vi.mocked(client.setAccountData).mockResolvedValue({});
         vm = new RoomEmojiPacksViewModel({ client, room });
     });
 
@@ -91,6 +92,32 @@ describe("RoomEmojiPacksViewModel", () => {
         expect(vm.getSnapshot().stateKeys).toEqual(["", "pepe"]);
     });
 
+    it("offers a new pack in all the creator's rooms, keeping the other entries", async () => {
+        vi.mocked(client.getAccountData).mockImplementation((type) =>
+            type === EMOTE_ROOMS_EVENT
+                ? new MatrixEvent({ type, content: { rooms: { "!other:server": { fav: {} } } } })
+                : undefined,
+        );
+        vm.createPack("Cats");
+        await settle();
+        expect(client.setAccountData).toHaveBeenCalledWith(EMOTE_ROOMS_EVENT, {
+            rooms: { "!other:server": { fav: {} }, [room.roomId]: { cats: {} } },
+        });
+    });
+
+    it("still finishes creating when the pack cannot be offered everywhere", async () => {
+        vi.mocked(client.setAccountData).mockRejectedValueOnce(new Error("offline"));
+        vm.createPack("Cats");
+        await settle();
+        expect(vm.getSnapshot().error).toBeUndefined();
+    });
+
+    it("refuses names longer than 100 characters", () => {
+        vm.createPack("x".repeat(101));
+        expect(vm.getSnapshot().error).toBe("Pack names can be at most 100 characters.");
+        expect(client.sendStateEvent).not.toHaveBeenCalled();
+    });
+
     it("does not reuse a deleted pack's state key", async () => {
         vm.createPack("gone");
         await settle();
@@ -112,6 +139,8 @@ describe("RoomEmojiPacksViewModel", () => {
         vm.createPack("Cats");
         await settle();
         expect(vm.getSnapshot().error).toBe("You don't have permission to add packs here.");
+        // A pack that was not created is not offered anywhere.
+        expect(client.setAccountData).not.toHaveBeenCalled();
 
         vi.mocked(client.sendStateEvent).mockRejectedValueOnce(new Error("offline"));
         vm.createPack("Cats");

@@ -155,7 +155,7 @@
         }
     },
     "matcha_emoji": {
-        "busy": "Saving emoji…",
+        "busy": "Saving…",
         "create_pack": "Create pack",
         "delete_pack": "Delete pack",
         "delete_pack_confirm": "Delete this pack and all its emoji and stickers for everyone?",
@@ -169,7 +169,7 @@
         "new_pack_description": "Packs keep emoji and stickers together, such as one pack per sticker set. Each pack is a tab in the sticker picker.",
         "new_pack_label": "New pack name",
         "pack_name_label": "Pack name",
-        "read_only": "You don't have permission to change these emoji.",
+        "read_only": "You don't have permission to change this pack.",
         "remove": "Remove %(code)s",
         "sticker_count": {
             "one": "%(count)s sticker",
@@ -181,8 +181,9 @@
         "upload": "Upload emoji",
         "upload_hint": "PNG, GIF, WebP or JPEG, up to 512 KB. Use emoji in messages by typing :name:",
         "upload_stickers": "Upload stickers",
+        "uploading": "Uploading %(current)s of %(total)s…",
         "use_everywhere": "Use in all my rooms",
-        "use_everywhere_description": "Offer this pack's emoji and stickers in every room you're in. Only you see this choice."
+        "use_everywhere_description": "Offer this pack's emoji and stickers in every room you're in. Only you see this choice. Phones show named packs only when this is on."
     },
     "matcha_kanban": {
         "active": "Active cards",

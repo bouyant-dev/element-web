@@ -39,7 +39,7 @@ function OpenStickerPicker({
     const packs = useCustomStickerPacks(room);
     const close = useCallback(() => setStickerPickerOpen(false), [setStickerPickerOpen]);
     const vm = useCreateAutoDisposedViewModel(
-        () => new StickerPickerViewModel({ client, packs, threadId, onFinished: close }),
+        () => new StickerPickerViewModel({ client, room, packs, threadId, onFinished: close }),
     );
     useEffect(() => vm.setPacks(packs), [vm, packs]);
 

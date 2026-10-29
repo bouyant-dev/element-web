@@ -49,7 +49,22 @@ describe("<SpaceSettingsDialog />", () => {
         renderDialog();
         fireEvent.click(screen.getByTestId(`settings-tab-${SpaceSettingsTab.Emoji}`));
         expect(
-            screen.getByText(/Upload custom emoji for everyone in this space\. They work in every room of the space/),
+            screen.getByText(
+                /Upload custom emoji and stickers for everyone in this space\. They work in every room of the space/,
+            ),
         ).toBeInTheDocument();
+    });
+
+    it("opens on the tab it is asked for", () => {
+        SdkConfig.add({ matcha_thread_tabs: true });
+        render(
+            <SpaceSettingsDialog
+                matrixClient={client}
+                space={space}
+                initialTabId={SpaceSettingsTab.Emoji}
+                onFinished={vi.fn()}
+            />,
+        );
+        expect(screen.getByText(/Upload custom emoji and stickers for everyone in this space/)).toBeInTheDocument();
     });
 });

@@ -21,7 +21,6 @@ import {
     type Room,
     type RoomState,
 } from "matrix-js-sdk/src/matrix";
-import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
 
 import { _t } from "../../languageHandler";
@@ -30,21 +29,22 @@ import {
     ACCEPTED_EMOJI_TYPES,
     EMOTE_ROOMS_EVENT,
     MAX_EMOJI_FILE_SIZE,
+    MAX_PACK_NAME_LENGTH,
     NEW_SHORTCODE_PATTERN,
     ROOM_EMOTES_EVENT,
     USER_EMOTES_EVENT,
+    canEditRoomPacks,
     isUsedEverywhere,
     packDisplayName,
     parseEmojiImages,
     parseStickerImages,
+    setPackUsedEverywhere,
     shortcodeFromFileName,
     withImage,
     withPackName,
     withRenamedImage,
-    withUsedEverywhere,
     withoutImage,
     type CustomEmoji,
-    type EmoteRoomsContent,
     type ImagePackContent,
     type ImagePackImage,
 } from "../../utils/matcha/imagePacks";
@@ -170,7 +170,10 @@ export class EmojiPackSettingsViewModel
             const uploaded: { file: File; url: string; info: ImagePackImage["info"] }[] = [];
             const baseBytes = this.props.target.kind === "room" ? packBytes(this.latestContent()) : 0;
             // Rejected and failed files are skipped so the others still get added; the first problem is shown.
-            for (const file of files) {
+            for (const [index, file] of files.entries()) {
+                if (!this.isDisposed) {
+                    this.snapshot.merge({ uploading: { usage, current: index + 1, total: files.length } });
+                }
                 if (!ACCEPTED_EMOJI_TYPES.includes(file.type)) {
                     error ??= _t("matcha_emoji|error_type", { name: file.name });
                     continue;
@@ -206,6 +209,7 @@ export class EmojiPackSettingsViewModel
                     error ??= _t("matcha_emoji|error_upload", { name: file.name });
                 }
             }
+            if (!this.isDisposed) this.snapshot.merge({ uploading: undefined });
             if (!uploaded.length) return error;
 
             // Name the new images against the latest pack, so nobody's image is replaced.
@@ -247,25 +251,32 @@ export class EmojiPackSettingsViewModel
     public renamePack = (name: string): void => {
         const trimmed = name.trim();
         if (this.props.target.kind === "user" || !trimmed || trimmed === this.snapshot.current.name) return;
+        if (trimmed.length > MAX_PACK_NAME_LENGTH) {
+            this.snapshot.merge({ error: _t("matcha_emoji|error_pack_name_length", { max: MAX_PACK_NAME_LENGTH }) });
+            return;
+        }
         this.change(() => this.write(withPackName(this.latestContent(), trimmed)));
     };
 
     public deletePack = (): void => {
+        const { client, target } = this.props;
         // The default pack stays: other clients and Matcha's own emoji settings expect it.
-        if (this.props.target.kind === "user" || this.stateKey === "") return;
-        this.change(() => this.write({}));
+        if (target.kind === "user" || this.stateKey === "") return;
+        this.change(async () => {
+            await this.write({});
+            // Only the user's own list can be cleaned; other members keep a harmless entry for the deleted pack.
+            const enabled = client.getAccountData(EMOTE_ROOMS_EVENT)?.getContent();
+            if (isUsedEverywhere(enabled, target.room.roomId, this.stateKey)) {
+                await setPackUsedEverywhere(client, target.room.roomId, this.stateKey, false);
+            }
+        });
     };
 
     public setUsedEverywhere = (usedEverywhere: boolean): void => {
         const { client, target } = this.props;
         if (target.kind === "user") return;
         this.change(async () => {
-            // Read just before writing, so packs enabled meanwhile elsewhere are kept.
-            const current = client.getAccountData(EMOTE_ROOMS_EVENT)?.getContent<EmoteRoomsContent>();
-            await client.setAccountData(
-                EMOTE_ROOMS_EVENT,
-                withUsedEverywhere(current, target.room.roomId, this.stateKey, usedEverywhere),
-            );
+            await setPackUsedEverywhere(client, target.room.roomId, this.stateKey, usedEverywhere);
             if (!this.isDisposed) this.refresh();
         });
     };
@@ -304,13 +315,7 @@ export class EmojiPackSettingsViewModel
 
     private canEdit(): boolean {
         const { client, target } = this.props;
-        if (target.kind === "user") return true;
-        // Room state, not getMyMembership(): the room only recalculates that after the state events are applied.
-        const me = client.getSafeUserId();
-        return (
-            target.room.currentState.getMember(me)?.membership === KnownMembership.Join &&
-            target.room.currentState.maySendStateEvent(ROOM_EMOTES_EVENT, me)
-        );
+        return target.kind === "user" || canEditRoomPacks(target.room, client.getSafeUserId());
     }
 
     private latestContent(): ImagePackContent | undefined {

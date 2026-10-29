@@ -20,6 +20,8 @@ export const EMOTICON_ATTRIBUTE = "data-mx-emoticon";
 
 /** Shortcodes Matcha writes; other clients may have stored any shortcode without spaces or colons. */
 export const NEW_SHORTCODE_PATTERN = /^[A-Za-z0-9_-]{2,32}$/;
+/** Longest pack name Matcha writes, in characters. */
+export const MAX_PACK_NAME_LENGTH = 100;
 /** Largest emoji image Matcha uploads, in bytes. */
 export const MAX_EMOJI_FILE_SIZE = 512 * 1024;
 /** Image types Matcha uploads as emoji. */
@@ -217,6 +219,37 @@ export function withUsedEverywhere(
     const rooms = Object.entries(isObject(base.rooms) ? base.rooms : {}).filter(([id]) => id !== roomId);
     if (Object.keys(roomPacks).length) rooms.push([roomId, roomPacks]);
     return { ...base, rooms: Object.fromEntries(rooms) as EmoteRoomsContent["rooms"] };
+}
+
+// Every change to im.ponies.emote_rooms, from any pack, waits for the one before it.
+let emoteRoomsQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Offer a room pack in all the user's rooms, or stop. Changes run one at a time and each reads the account data
+ * afresh: setAccountData resolves only once its echo is stored, so a change never overwrites the one before it.
+ */
+export function setPackUsedEverywhere(
+    client: MatrixClient,
+    roomId: string,
+    stateKey: string,
+    used: boolean,
+): Promise<void> {
+    const change = emoteRoomsQueue.then(async () => {
+        const current = client.getAccountData(EMOTE_ROOMS_EVENT)?.getContent<EmoteRoomsContent>();
+        await client.setAccountData(EMOTE_ROOMS_EVENT, withUsedEverywhere(current, roomId, stateKey, used));
+    });
+    // A failed change must not stop the ones after it.
+    emoteRoomsQueue = change.catch(() => {});
+    return change;
+}
+
+/** Whether the user may add, change and delete the room's packs. */
+export function canEditRoomPacks(room: Room, userId: string): boolean {
+    // Room state, not getMyMembership(): the room only recalculates that after the state events are applied.
+    return (
+        room.currentState.getMember(userId)?.membership === KnownMembership.Join &&
+        room.currentState.maySendStateEvent(ROOM_EMOTES_EVENT, userId)
+    );
 }
 
 /**

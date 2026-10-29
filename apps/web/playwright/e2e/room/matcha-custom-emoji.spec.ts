@@ -55,7 +55,7 @@ test.describe("Matcha custom emoji", () => {
         await dismissPrompts(page);
 
         // a) Upload through the room's Emoji settings tab, then rename it.
-        const settings = await app.settings.openRoomSettings("Emoji");
+        const settings = await app.settings.openRoomSettings("Emoji and stickers");
         const fileChooser = page.waitForEvent("filechooser");
         await settings.getByRole("button", { name: "Upload emoji", exact: true }).click();
         await (

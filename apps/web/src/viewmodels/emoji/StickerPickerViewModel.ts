@@ -11,17 +11,21 @@ import {
     type StickerPickerViewActions,
     type StickerPickerViewSnapshot,
 } from "@element-hq/web-shared-components";
-import { type MatrixClient } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, type Room } from "matrix-js-sdk/src/matrix";
 
 import { mediaFromMxc } from "../../customisations/Media";
 import defaultDispatcher from "../../dispatcher/dispatcher";
 import { Action } from "../../dispatcher/actions";
 import { UserTab } from "../../components/views/dialogs/UserTab";
-import { type StickerPack } from "../../utils/matcha/imagePacks";
+import { RoomSettingsTab } from "../../components/views/dialogs/RoomSettingsDialog-tab";
+import { SpaceSettingsTab } from "../../components/views/dialogs/SpaceSettingsDialog";
+import { canEditRoomPacks, type StickerPack } from "../../utils/matcha/imagePacks";
 
 /** Properties of {@link StickerPickerViewModel}. */
 export interface StickerPickerViewModelProps {
     client: MatrixClient;
+    /** The room the composer sends to. */
+    room: Room;
     /** The sticker packs usable in the room, in picker order. */
     packs: StickerPack[];
     /** The thread the composer sends to, if any. */
@@ -79,7 +83,28 @@ export class StickerPickerViewModel
     };
 
     public openSettings = (): void => {
-        defaultDispatcher.dispatch({ action: Action.ViewUserSettings, initialTabId: UserTab.Emoji });
+        const { client, room, packs } = this.props;
+        const selected = packs.find((pack) => pack.id === this.selectedPackId) ?? packs[0];
+        // A room or Space pack is managed in its own settings; without packs, in this room's if the user may add one.
+        let packRoom: Room | null = null;
+        if (selected?.kind === "room") packRoom = selected.roomId ? client.getRoom(selected.roomId) : null;
+        else if (!selected && canEditRoomPacks(room, client.getSafeUserId())) packRoom = room;
+
+        if (packRoom?.isSpaceRoom()) {
+            defaultDispatcher.dispatch({
+                action: Action.OpenSpaceSettings,
+                space: packRoom,
+                initialTabId: SpaceSettingsTab.Emoji,
+            });
+        } else if (packRoom) {
+            defaultDispatcher.dispatch({
+                action: "open_room_settings",
+                room_id: packRoom.roomId,
+                initial_tab_id: RoomSettingsTab.Emoji,
+            });
+        } else {
+            defaultDispatcher.dispatch({ action: Action.ViewUserSettings, initialTabId: UserTab.Emoji });
+        }
         this.props.onFinished();
     };
 

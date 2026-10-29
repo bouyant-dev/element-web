@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE in the repository root for full details.
 */
 
-import React, { type JSX, useState } from "react";
+import React, { type JSX, useEffect, useState } from "react";
 import { Button, Form, IconButton, Text } from "@vector-im/compound-web";
 import CloseIcon from "@vector-im/compound-design-tokens/assets/web/icons/close";
 import PlusIcon from "@vector-im/compound-design-tokens/assets/web/icons/plus";
@@ -40,6 +40,13 @@ export type NewEmojiPackViewModel = ViewModel<NewEmojiPackViewSnapshot, NewEmoji
 export function NewEmojiPackView({ vm }: { vm: NewEmojiPackViewModel }): JSX.Element | null {
     const { canCreate, busy, error } = useViewModel(vm);
     const [name, setName] = useState("");
+    const [submitted, setSubmitted] = useState(false);
+    // Clear the name once the pack exists; keep it when creating failed, so it can be fixed and sent again.
+    useEffect(() => {
+        if (!submitted || busy) return;
+        if (!error) setName("");
+        setSubmitted(false);
+    }, [submitted, busy, error]);
     if (!canCreate) return null;
 
     return (
@@ -49,8 +56,8 @@ export function NewEmojiPackView({ vm }: { vm: NewEmojiPackViewModel }): JSX.Ele
                 onSubmit={(event) => {
                     event.preventDefault();
                     if (!name.trim() || busy) return;
+                    setSubmitted(true);
                     vm.createPack(name);
-                    setName("");
                 }}
             >
                 <Form.Field name="new-emoji-pack" className={styles.field}>

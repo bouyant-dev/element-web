@@ -170,7 +170,9 @@ describe("<RoomSettingsDialog />", () => {
                 SdkConfig.add({ matcha_thread_tabs: true });
                 getComponent();
                 fireEvent.click(screen.getByTestId("settings-tab-ROOM_EMOJI_TAB"));
-                expect(screen.getByText(/Upload custom emoji for everyone in this room/)).toBeInTheDocument();
+                expect(
+                    screen.getByText(/Upload custom emoji and stickers for everyone in this room/),
+                ).toBeInTheDocument();
             });
         });
 
